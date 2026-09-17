@@ -35,6 +35,8 @@ Secrets are delivered once, only to this CLI, within one hour of approval. Use `
 
 `iugu app init --json` and `iugu app env --format json` print: `issuer`, `authorization_url`, `token_url`, `jwks_url`, `verify_url`, `userinfo_url`, `client_id` (= app id), `app_tag`, `workspace_id`, ACR values (`urn:iugu:grant_scopes:informations|config|transfers`). Users log in through the authorization code flow with PKCE; the app authenticates at `token_url` with client_id + client_secret; app-to-app calls use `client_credentials`; `/verify` takes `workspace_id`, `principals[]`, `actions[]` and answers per action. Actions your app implements are `<app_tag>:<action>`.
 
+If the credential was requested through the **MCP server** (not this CLI), the secret still lands here: `iugu changeset secrets <change_set_id> --write-env .env.local` works for the same developer's logged-in CLI — the model never sees the value.
+
 ## Sandboxes and harness quirks {#sandboxes}
 
 - **No network** (Codex `workspace-write` default, some CI): every `iugu` call fails with a connection error and a hint. Ask the human to enable outbound network for the sandbox (Codex: `sandbox_workspace_write.network_access = true`) or to run the command outside it.
