@@ -123,7 +123,7 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 			status = "applied"
 			secrets = map[string]any{"available": true, "expires_at": "2030-01-01T00:00:00Z"}
 		}
-		writeJSON(w, 200, map[string]any{"id": "cs1", "status": status, "result": []any{map[string]any{"op": "credentials.create", "credential_id": "cred1"}}, "secrets": secrets,
+		writeJSON(w, 200, map[string]any{"id": "cs1", "status": status, "app": map[string]any{"id": "app1"}, "result": []any{map[string]any{"op": "credentials.create", "credential_id": "cred1"}}, "secrets": secrets,
 			"diff": []any{map[string]any{"summary": `Create credential "dev" for app "Acme"`}}})
 	})
 	mux.HandleFunc("/v1/change-sets/cs1/secrets", func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +241,7 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 
 	// wait + write-env: secrets land in a 0600 file, never in stdout
 	envPath := filepath.Join(dir, ".env.local")
-	if err := os.WriteFile(filepath.Join(dir, "iugu.toml"), []byte("[app]\nid = 'app1'\n[development]\nworkspace = 'ws1'\ncredential = 'pending:cs1'\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "iugu.toml"), []byte("[app]\nid = 'app1'\n[development]\nworkspace = 'ws1'\ncredential = 'pending:cs0-expired'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)

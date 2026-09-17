@@ -162,15 +162,23 @@ func (rt *Runtime) deliverOutcome(ctx context.Context, client *api.Client, cs ma
 	return nil
 }
 
-// recordCredential replaces `credential = 'pending:<change set>'` in the project's iugu.toml with the id of
-// the credential the applied change set created, so the project stops pointing at a change set.
+// recordCredential points the project's iugu.toml at the credential an applied change set created for the
+// project's app, when the project has none yet or still carries a `pending:<change set>` marker (the marker's
+// change set may differ: a secrets window that expired leads to a second request for the same app).
 func recordCredential(dir, changeSetID string, cs map[string]any) (path, credential string) {
 	if dir == "" {
 		dir = "."
 	}
 	project, ok, err := config.FindProject(dir)
-	if err != nil || !ok || project.Development.Credential != "pending:"+changeSetID {
+	if err != nil || !ok {
 		return "", ""
+	}
+	current := project.Development.Credential
+	if current != "" && !strings.HasPrefix(current, "pending:") {
+		return "", ""
+	}
+	if current != "pending:"+changeSetID && project.App.ID != "" && api.Str(cs, "app", "id") != project.App.ID {
+		return "", "" // a credential for some other app
 	}
 	for _, r := range api.List(cs, "result") {
 		m, _ := r.(map[string]any)

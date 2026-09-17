@@ -116,15 +116,16 @@ func (rt *Runtime) testPrincipalCommand() *cobra.Command {
 		})
 		return nil
 	}}
-	del := &cobra.Command{Use: "delete <id>", Short: "Delete a temporary principal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	del := &cobra.Command{Use: "delete <id | temp:id>", Short: "Delete a temporary principal (accepts the id or the temp:… principal string)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := rt.apiClient(cmd.Context())
 		if err != nil {
 			return err
 		}
-		if _, err := client.Delete(cmd.Context(), "/v1/temp-principals/"+args[0]); err != nil {
+		id := strings.TrimPrefix(args[0], "temp:")
+		if _, err := client.Delete(cmd.Context(), "/v1/temp-principals/"+id); err != nil {
 			return err
 		}
-		rt.Printer.Result(map[string]any{"deleted": args[0]}, func(w io.Writer) { fmt.Fprintln(w, "Deleted") })
+		rt.Printer.Result(map[string]any{"deleted": id}, func(w io.Writer) { fmt.Fprintln(w, "Deleted") })
 		return nil
 	}}
 	cmd.PersistentFlags().StringVar(&workspace, "workspace", "", "workspace id")
