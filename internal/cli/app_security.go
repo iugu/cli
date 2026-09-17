@@ -29,6 +29,8 @@ func (rt *Runtime) tier1(cmd *cobra.Command, method, path string, body any, opts
 		r, err = client.Patch(cmd.Context(), path, body, rt.mutating())
 	case "PUT":
 		r, err = client.Put(cmd.Context(), path, body, rt.mutating())
+	case "DELETE":
+		r, err = client.Delete(cmd.Context(), path)
 	}
 	if err != nil {
 		return err

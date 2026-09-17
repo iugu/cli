@@ -85,9 +85,12 @@ func (rt *Runtime) exit(err error) int {
 	}
 	var ex *output.Exit
 	if errors.As(err, &ex) {
-		if ex.Payload != nil && p.JSON {
+		switch {
+		case ex.Payload != nil && p.JSON:
 			p.Result(ex.Payload, nil)
-		} else if ex.Message != "" {
+		case p.JSON: // agents read stdout: a bare message still needs a JSON envelope
+			p.Result(map[string]any{"error": map[string]any{"code": exitCodeName(ex.Code), "message": ex.Message}}, nil)
+		case ex.Message != "":
 			p.Line("%s", ex.Message)
 		}
 		return ex.Code
@@ -123,6 +126,9 @@ func (rt *Runtime) exit(err error) int {
 			p.Line("API error: %s", apiErr.Error())
 			if apiErr.Code == "workspace_not_consented" {
 				p.Line("Hint: iugu login --workspace <id> re-consents and merges the workspace into your grant.")
+			}
+			if apiErr.Code == "insufficient_scope" {
+				p.Line("Hint: re-consent with the missing scope, e.g. iugu login --scopes \"%s console:gia.write\"", DefaultScopes)
 			}
 		}
 		switch apiErr.Code {
@@ -333,4 +339,19 @@ func short(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+func exitCodeName(code int) string {
+	switch code {
+	case output.ExitUsage:
+		return "usage"
+	case output.ExitAuthRequired:
+		return "login_required"
+	case output.ExitApproval:
+		return "approval_required"
+	case output.ExitConflict:
+		return "conflict"
+	default:
+		return "error"
+	}
 }

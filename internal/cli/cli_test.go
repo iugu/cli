@@ -24,6 +24,8 @@ type fakeConsole struct {
 	devicePoll   atomic.Int32
 	revokedGrant bool                      // when true every API call answers 401 invalid_token
 	lastDevice   struct{ id, name string } // device identity seen on /device_authorization
+	lastGia      string                    // last GIA write seen: "METHOD /path"
+	lastGiaBody  map[string]any
 }
 
 func jwtWith(claims map[string]any) string {
@@ -89,6 +91,23 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 		}
 		w.Header().Set("ETag", `"abc"`)
 		writeJSON(w, 201, map[string]any{"id": "app1", "name": "Acme", "tag": "acme", "draft": true, "public": false})
+	})
+	mux.HandleFunc("/v1/workspaces/ws1/gia/members", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"data": []any{map[string]any{"id": "m1", "user": map[string]any{"email": "dev@iugu.test"}, "roles": []any{}}}})
+	})
+	mux.HandleFunc("/v1/workspaces/ws1/gia/", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.lastGia = r.Method + " " + r.URL.Path
+		f.lastGiaBody = body
+		writeJSON(w, 202, map[string]any{"id": "cs9", "status": "pending_approval", "approval": map[string]any{"url": f.srv.URL + "/approvals/cs9"},
+			"operations": []any{map[string]any{"op": "gia.x"}}, "diff": []any{map[string]any{"summary": "GIA change"}}})
 	})
 	mux.HandleFunc("/v1/workspaces/ws1/installations", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
@@ -368,5 +387,54 @@ func TestFillAppID(t *testing.T) {
 	}
 	if ops[3]["params"].(map[string]any)["app_id"] != "app1" {
 		t.Fatal("nil params must be created")
+	}
+}
+
+func TestGiaWritesAreTier1AndResolveMembersByEmail(t *testing.T) {
+	f := newFakeConsole(t)
+	dir := t.TempDir()
+	// log in through the handoff (fake answers immediately on the second poll)
+	code, out, _ := run(t, dir, f.srv.URL, "login", "--json", "--agent", "yes")
+	if code != 0 {
+		t.Fatalf("login: %d %s", code, out)
+	}
+	var hand map[string]any
+	_ = json.Unmarshal([]byte(out), &hand)
+	run(t, dir, f.srv.URL, "login", "--complete", hand["handle"].(string), "--json")
+	code, out, _ = run(t, dir, f.srv.URL, "login", "--complete", hand["handle"].(string), "--json")
+	if code != 0 || !strings.Contains(out, `"logged_in": true`) {
+		t.Fatalf("completion: %d %s", code, out)
+	}
+
+	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "Support", "--policies", "p1,p2", "--json")
+	if code != 5 || !strings.Contains(out, "approvals/cs9") || f.lastGia != "POST /v1/workspaces/ws1/gia/roles" {
+		t.Fatalf("roles create: %d %s (%s)", code, out, f.lastGia)
+	}
+	if ids, _ := f.lastGiaBody["policy_ids"].([]any); len(ids) != 2 || ids[1] != "p2" {
+		t.Fatalf("policy ids: %v", f.lastGiaBody)
+	}
+	code, _, _ = run(t, dir, f.srv.URL, "gia", "policies", "update", "pol1", "--workspace", "ws1", "--actions", "acme:invoice.*", "--json")
+	if code != 5 || f.lastGia != "PATCH /v1/workspaces/ws1/gia/policies/pol1" || f.lastGiaBody["name"] != nil {
+		t.Fatalf("policies update: %d %s %v", code, f.lastGia, f.lastGiaBody)
+	}
+	code, _, _ = run(t, dir, f.srv.URL, "gia", "members", "set-roles", "dev@iugu.test", "--workspace", "ws1", "--roles", "r1", "--json")
+	if code != 5 || f.lastGia != "PATCH /v1/workspaces/ws1/gia/members/m1" {
+		t.Fatalf("members set-roles by e-mail: %d %s", code, f.lastGia)
+	}
+	code, out, _ = run(t, dir, f.srv.URL, "gia", "members", "remove", "nobody@iugu.test", "--workspace", "ws1", "--json")
+	if code != 1 || !strings.Contains(out, "no member with e-mail") {
+		t.Fatalf("unknown e-mail: %d %s", code, out)
+	}
+	code, _, _ = run(t, dir, f.srv.URL, "gia", "invites", "resend", "inv1", "--workspace", "ws1", "--json")
+	if code != 5 || f.lastGia != "POST /v1/workspaces/ws1/gia/invites/inv1/resend" {
+		t.Fatalf("invites resend: %d %s", code, f.lastGia)
+	}
+	code, _, _ = run(t, dir, f.srv.URL, "gia", "roles", "delete", "r9", "--workspace", "ws1", "--json")
+	if code != 5 || f.lastGia != "DELETE /v1/workspaces/ws1/gia/roles/r9" {
+		t.Fatalf("roles delete: %d %s", code, f.lastGia)
+	}
+	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "x", "--json")
+	if code != 2 || !strings.Contains(out, "--policies") {
+		t.Fatalf("usage error expected: %d %s", code, out)
 	}
 }
