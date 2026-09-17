@@ -1,0 +1,301 @@
+// Package cli wires the commands. Conventions (plan §8.4): `--json` everywhere (stable shapes on
+// stdout, diagnostics on stderr); exit codes 0 ok, 1 error, 2 usage/cancelled, 4 login required,
+// 5 approval required (payload printed), 6 stale/conflict; help text names the non-interactive
+// equivalent of every prompt because the primary reader is an LLM.
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/iugu-private/platform2-cli/internal/api"
+	"github.com/iugu-private/platform2-cli/internal/auth"
+	"github.com/iugu-private/platform2-cli/internal/config"
+	"github.com/iugu-private/platform2-cli/internal/output"
+	"github.com/iugu-private/platform2-cli/internal/store"
+)
+
+// Version is set by the build (goreleaser -X).
+var Version = "dev"
+
+// Runtime is everything a command needs; built once per invocation.
+type Runtime struct {
+	Printer *output.Printer
+	HTTP    *http.Client
+
+	jsonFlag       bool
+	apiFlag        string
+	profileFlag    string
+	storeFlag      string
+	yes            bool
+	agentFlag      string
+	idempotencyKey string
+	quiet          bool
+
+	configFile  *config.File
+	profileName string
+	profile     config.Profile
+	store       store.Store
+
+	prm      *auth.ProtectedResource
+	metadata *auth.Metadata
+	oauth    *auth.Client
+	session  *auth.Session
+}
+
+// Execute runs the CLI and returns the process exit code.
+func Execute(args []string) int {
+	rt := &Runtime{HTTP: &http.Client{Timeout: 60 * time.Second}}
+	root := rt.rootCommand()
+	root.SetArgs(args)
+	err := root.Execute()
+	if err == nil {
+		return output.ExitOK
+	}
+	return rt.exit(err)
+}
+
+func (rt *Runtime) exit(err error) int {
+	p := rt.Printer
+	if p == nil {
+		p = output.New(rt.jsonFlag)
+	}
+	var ex *output.Exit
+	if errors.As(err, &ex) {
+		if ex.Payload != nil && p.JSON {
+			p.Result(ex.Payload, nil)
+		} else if ex.Message != "" {
+			p.Line("%s", ex.Message)
+		}
+		return ex.Code
+	}
+	if errors.Is(err, auth.ErrLoginRequired) || errors.Is(err, store.ErrNotFound) {
+		msg := "Login required. Run `iugu login` (or `iugu login --non-interactive` from an agent and hand the URL to a human)."
+		if p.JSON {
+			p.Result(map[string]any{"error": map[string]any{"code": "login_required", "message": msg, "next_step": "iugu login"}}, nil)
+		} else {
+			p.Line("%s", msg)
+		}
+		return output.ExitAuthRequired
+	}
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) {
+		if p.JSON {
+			p.Result(map[string]any{"error": apiErr}, nil)
+		} else {
+			p.Line("API error: %s", apiErr.Error())
+			if apiErr.Code == "workspace_not_consented" {
+				p.Line("Hint: iugu login --workspace <id> re-consents and merges the workspace into your grant.")
+			}
+		}
+		switch apiErr.Code {
+		case "invalid_token":
+			return output.ExitAuthRequired
+		case "stale_resource":
+			return output.ExitConflict
+		}
+		return output.ExitFailure
+	}
+	if p.JSON {
+		p.Result(map[string]any{"error": map[string]any{"code": "error", "message": err.Error()}}, nil)
+	} else {
+		p.Line("Error: %v", err)
+	}
+	return output.ExitFailure
+}
+
+func (rt *Runtime) rootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "iugu",
+		Short:         "iugu Console for developers and their AI agents",
+		Long:          "iugu — create, configure, test and publish Platform 2 apps from a terminal or an AI coding session.\nSensitive changes (credentials, certificates, permissions, publishing) become approvals a human completes in the browser.",
+		Version:       Version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			rt.Printer = output.New(rt.jsonFlag)
+			rt.Printer.Quiet = rt.quiet
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			rt.configFile = cfg
+			rt.profileName = cfg.ProfileName(rt.profileFlag)
+			rt.profile = cfg.Resolve(rt.profileName, rt.apiFlag)
+			dir, err := config.Dir()
+			if err != nil {
+				return err
+			}
+			kind := rt.storeFlag
+			if kind == "" {
+				kind = os.Getenv(config.EnvStore)
+			}
+			rt.store = store.Select(kind, dir, func(msg string) { rt.Printer.Line("warning: %s", msg) })
+			return nil
+		},
+	}
+	pf := root.PersistentFlags()
+	pf.BoolVar(&rt.jsonFlag, "json", false, "machine-readable JSON on stdout (agents: always use this)")
+	pf.StringVar(&rt.apiFlag, "api", "", "Lifecycle API base URL (default "+config.DefaultAPI+"; env IUGU_API)")
+	pf.StringVar(&rt.profileFlag, "profile", "", "named login profile (env IUGU_PROFILE)")
+	pf.StringVar(&rt.storeFlag, "credentials-store", "", "keychain | file | ephemeral (default: keychain, file fallback; env IUGU_CREDENTIALS_STORE)")
+	pf.BoolVar(&rt.yes, "yes", false, "assume yes for confirmations")
+	pf.StringVar(&rt.agentFlag, "agent", "auto", "agent mode: yes | no | auto (auto detects CI, Claude Code, Codex, OpenCode, Cursor or a non-TTY)")
+	pf.StringVar(&rt.idempotencyKey, "idempotency-key", "", "Idempotency-Key for mutating requests")
+	pf.BoolVarP(&rt.quiet, "quiet", "q", false, "suppress diagnostics on stderr")
+
+	root.AddCommand(rt.loginCommand(), rt.logoutCommand(), rt.authCommand(), rt.meCommand(), rt.workspaceCommand(),
+		rt.appCommand(), rt.changesetCommand(), rt.approvalsCommand(), rt.verifyCommand(), rt.testPrincipalCommand(),
+		rt.giaCommand(), rt.catalogCommand(), rt.agentCommand(), rt.docsCommand())
+	return root
+}
+
+// IsAgent applies the detection rule from the plan.
+func (rt *Runtime) IsAgent() bool {
+	switch strings.ToLower(rt.agentFlag) {
+	case "yes", "true", "1":
+		return true
+	case "no", "false", "0":
+		return false
+	}
+	for _, name := range []string{"CI", "CLAUDECODE", "CLAUDE_CODE", "CODEX_CI", "CODEX_SANDBOX", "OPENCODE", "CURSOR_TRACE_ID", "CURSOR_AGENT"} {
+		if os.Getenv(name) != "" {
+			return true
+		}
+	}
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "CLAUDE_CODE_") || strings.HasPrefix(env, "CODEX_") || strings.HasPrefix(env, "OPENCODE") {
+			return true
+		}
+	}
+	return !isTerminal(os.Stdin) || !isTerminal(os.Stdout)
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// discover resolves PRM + AS metadata once.
+func (rt *Runtime) discover(ctx context.Context) (*auth.Client, error) {
+	if rt.oauth != nil {
+		return rt.oauth, nil
+	}
+	prm, md, err := auth.Discover(ctx, rt.HTTP, rt.profile.API)
+	if err != nil {
+		return nil, err
+	}
+	rt.prm, rt.metadata = prm, md
+	rt.oauth = &auth.Client{HTTP: rt.HTTP, Metadata: md, ClientID: rt.profile.ClientID}
+	return rt.oauth, nil
+}
+
+// loadSession returns the stored login of the profile.
+func (rt *Runtime) loadSession() (*auth.Session, error) {
+	if rt.session != nil {
+		return rt.session, nil
+	}
+	s, err := auth.Load(rt.store, rt.profileName)
+	if err != nil {
+		return nil, err
+	}
+	rt.session = s
+	return s, nil
+}
+
+// apiClient builds the /v1 client; IUGU_TOKEN (deploy token) wins over the stored login.
+func (rt *Runtime) apiClient(ctx context.Context) (*api.Client, error) {
+	client := &api.Client{BaseURL: rt.profile.API, HTTP: rt.HTTP, UserAgent: "iugu-cli/" + Version}
+	if token := os.Getenv(config.EnvToken); token != "" {
+		client.Token = func(context.Context) (string, error) { return token, nil }
+		return client, nil
+	}
+	session, err := rt.loadSession()
+	if err != nil {
+		return nil, err
+	}
+	client.Token = func(ctx context.Context) (string, error) {
+		oauth, err := rt.oauthForSession(ctx, session)
+		if err != nil {
+			return "", err
+		}
+		return session.Fresh(ctx, oauth, rt.store, rt.profileName)
+	}
+	return client, nil
+}
+
+// oauthForSession builds the token client from the facts stored at login (no network discovery needed
+// for a refresh unless the token endpoint is unknown).
+func (rt *Runtime) oauthForSession(ctx context.Context, s *auth.Session) (*auth.Client, error) {
+	if rt.oauth != nil {
+		return rt.oauth, nil
+	}
+	if s.Issuer != "" {
+		issuer := strings.TrimRight(s.Issuer, "/")
+		rt.oauth = &auth.Client{HTTP: rt.HTTP, ClientID: s.ClientID, Metadata: &auth.Metadata{
+			Issuer: s.Issuer, TokenEndpoint: issuer + "/token", RevocationEndpoint: issuer + "/revoke",
+			AuthorizationEndpoint: issuer + "/authorize", DeviceAuthorizationEndpoint: issuer + "/device_authorization",
+		}}
+		return rt.oauth, nil
+	}
+	return rt.discover(ctx)
+}
+
+// workspaceArg resolves the workspace to act on: flag > iugu.toml development workspace > profile >
+// the single consented workspace.
+func (rt *Runtime) workspaceArg(flag string) (string, error) {
+	if flag != "" {
+		return flag, nil
+	}
+	if project, ok, _ := config.FindProject("."); ok && project.Development.Workspace != "" {
+		return project.Development.Workspace, nil
+	}
+	if rt.profile.Workspace != "" {
+		return rt.profile.Workspace, nil
+	}
+	if s, err := rt.loadSession(); err == nil && len(s.Workspaces) == 1 {
+		return s.Workspaces[0], nil
+	}
+	return "", &output.Exit{Code: output.ExitUsage, Message: "which workspace? pass --workspace <id>, run `iugu workspace use <id>`, or run inside a project with iugu.toml"}
+}
+
+// appArg resolves the app: positional/flag > iugu.toml.
+func (rt *Runtime) appArg(flag string) (string, error) {
+	if flag != "" {
+		return flag, nil
+	}
+	if project, ok, _ := config.FindProject("."); ok && project.App.ID != "" {
+		return project.App.ID, nil
+	}
+	return "", &output.Exit{Code: output.ExitUsage, Message: "which app? pass --app <id> or run inside a project with iugu.toml (created by `iugu app init`)"}
+}
+
+func (rt *Runtime) mutating() *api.Options {
+	return &api.Options{IdempotencyKey: rt.idempotencyKey}
+}
+
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Local().Format("2006-01-02 15:04")
+}
+
+func short(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+var _ = fmt.Sprintf
