@@ -64,7 +64,7 @@ changelog:
 release:
   github:
     owner: iugu
-    name: platform2-cli
+    name: cli
   draft: true
   prerelease: auto
   footer: |
