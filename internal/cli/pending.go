@@ -128,7 +128,8 @@ func (rt *Runtime) deliverOutcome(ctx context.Context, client *api.Client, cs ma
 		rt.Printer.Result(cs, nil)
 		return nil
 	}
-	result := map[string]any{"status": status, "change_set_id": id, "result": cs["result"]}
+	// title + summary let an agent that waits on several change sets tell them apart in the final payload
+	result := map[string]any{"status": status, "change_set_id": id, "title": api.Str(cs, "title"), "summary": summarize(cs), "app": cs["app"], "result": cs["result"]}
 	if path, credential := recordCredential(opts.projectDir, id, cs); credential != "" {
 		result["project"] = map[string]any{"path": path, "credential": credential}
 	}
