@@ -164,7 +164,7 @@ func (rt *Runtime) integrationFacts(ctx interface{ Done() <-chan struct{} }, app
 		"app_tag":             api.Str(app, "tag"),
 		"workspace_id":        workspace,
 		"acr_values":          map[string]string{"informations": "urn:iugu:grant_scopes:informations", "config": "urn:iugu:grant_scopes:config", "transfers": "urn:iugu:grant_scopes:transfers"},
-		"redirect_uri_rules":  "register exact https callback URLs with `iugu app oauth set --callbacks …` (Tier 1); the app authenticates with client_id + client_secret at token_url; user tokens carry sub, acr, sid; app tokens use client_credentials",
+		"redirect_uri_rules":  "register the exact callback URLs with `iugu app oauth set --callbacks …` (Tier 1; https, or http://localhost:<port>/… for local development); the app authenticates with client_id + client_secret at token_url; user tokens carry sub, acr, sid; app tokens use client_credentials",
 		"workspace_header":    "send the workspace short id as the `Workspace` header / workspace_id param when calling Console APIs and /verify",
 		"implemented_actions": fmt.Sprintf("declare actions your app implements as `%s:<action>` via `iugu app permissions set --implemented …`", api.Str(app, "tag")),
 	}

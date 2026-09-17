@@ -158,7 +158,7 @@ func (rt *Runtime) appOauthCommand() *cobra.Command {
 		},
 	}
 	set.Flags().StringVar(&appURL, "url", "", "app URL")
-	set.Flags().StringSliceVar(&callbacks, "callbacks", nil, "exact https redirect URIs")
+	set.Flags().StringSliceVar(&callbacks, "callbacks", nil, "exact redirect URIs (https; http://localhost:<port>/… is accepted for local development)")
 	addApprovalFlags(set.Flags(), &opts)
 	cmd.PersistentFlags().StringVar(&appFlag, "app", "", "app id (default: iugu.toml)")
 	cmd.AddCommand(set)

@@ -30,7 +30,7 @@ func (rt *Runtime) agentCommand() *cobra.Command {
 	setup := &cobra.Command{
 		Use:   "setup [--claude] [--codex] [--opencode] [--cursor] [--vscode] [--all]",
 		Short: "Write the remote-MCP entry and the iugu skill into each harness's config (no server is run)",
-		Long: `Configures Claude Code, Codex, OpenCode, Cursor and VS Code to reach Console's remote MCP server
+		Long: `Configures Claude Code, Codex, OpenCode, Cursor and VS Code to reach Iugu for AI, the remote MCP server
 (https://mcp.console.iugu.com/mcp) and installs the iugu skill (SKILL.md) where the harness reads skills.
 Nothing runs locally: the harness authenticates itself with OAuth on first use ("Connect"). Headless harnesses
 (claude -p, codex exec) need a prior interactive connection or IUGU_TOKEN (deploy token) as a bearer header.
