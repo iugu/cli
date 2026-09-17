@@ -54,15 +54,21 @@ func (rt *Runtime) handleResponse(ctx context.Context, client *api.Client, r *ap
 }
 
 func approvalPayload(cs map[string]any) map[string]any {
-	return map[string]any{
-		"status":        "pending_approval",
-		"change_set_id": api.Str(cs, "id"),
-		"approval":      cs["approval"],
-		"summary":       summarize(cs),
-		"diff":          cs["diff"],
-		"next_step":     fmt.Sprintf("iugu changeset wait %s [--write-env .env.local | --exec \"…{secret}…\" | --show-secret]", api.Str(cs, "id")),
-		"instructions":  "Show approval.url to the human (they review the diff and approve with a verification code). Poll with next_step; never ask the human for the secret — it is delivered once to this CLI.",
+	payload := map[string]any{
+		"status":          "pending_approval",
+		"change_set_id":   api.Str(cs, "id"),
+		"approval":        cs["approval"],
+		"approval_policy": cs["approval_policy"],
+		"summary":         summarize(cs),
+		"diff":            cs["diff"],
+		"next_step":       fmt.Sprintf("iugu changeset wait %s [--write-env .env.local | --exec \"…{secret}…\" | --show-secret]", api.Str(cs, "id")),
+		"instructions":    "Show approval.url to the human (they review the diff and approve with a verification code). Poll with next_step; never ask the human for the secret — it is delivered once to this CLI.",
 	}
+	if policy := api.Map(cs, "approval_policy"); policy != nil && policy["four_eyes"] == true {
+		payload["instructions"] = "This change needs a SECOND PERSON: the requester cannot approve it. Show approval.url to someone else holding " +
+			strings.Join(toStrings(api.List(policy, "approver_actions")), ", ") + ". Then poll with next_step."
+	}
+	return payload
 }
 
 func summarize(cs map[string]any) string {
