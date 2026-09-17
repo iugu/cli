@@ -13,7 +13,7 @@ Console's `docs/public/api-v1.yaml`; the contract there wins over anything in th
 | `internal/cli/` | cobra commands. `root.go` (runtime, flags, exit-code mapping), `login.go`, `auth_cmds.go`, `app.go`, `app_security.go` (Tier 1 app settings), `changeset.go` (+ approvals), `pending.go` (202 handling, `wait`, secret delivery: `--write-env`, `--exec`, `--show-secret`), `testing_cmds.go` (verify, test principals, gia, catalog), `agent.go` (`agent setup`, `docs`) |
 | `internal/cli/skill/` | embedded `SKILL.md`, `llms.txt`, `AGENTS.snippet.md` — what `iugu docs` prints and `agent setup` installs |
 | `internal/auth/` | discovery (RFC 9728 → RFC 8414), PKCE, loopback redirect, device flow, token refresh/revoke, `Session` |
-| `internal/store/` | credential stores: keychain (with timeout), 0600 file, memory, `Fallback` (keychain → file) |
+| `internal/store/` | credential stores: keychain (with timeout, namespaced per config dir), 0600 file, memory, `Fallback` (keychain → file, never a second copy of an existing login) |
 | `internal/api/` | HTTP client for `/v1` (bearer, `Idempotency-Key`, `If-Match`, error decoding, cursor pagination) |
 | `internal/config/` | `~/.config/iugu/config.json` profiles, `iugu.toml` project file, env names |
 | `internal/output/` | `--json`/`--jq` printing, tables, NDJSON, exit codes |
@@ -49,5 +49,7 @@ CA through the system keychain; Node needs `NODE_EXTRA_CA_CERTS`.
   Interactive prompts are only allowed when `!rt.IsAgent()`.
 - Keychain calls go through `store.Keyring` (bounded by `KeyringTimeout`); tests never touch the real
   `iugu-cli` service — use `iugu-cli-test`.
+- **Never rotate a refresh token you cannot persist**: `Session.Fresh` writes the session back before calling
+  the AS; keep that order. Each config dir is a credential holder (`device_id`); do not share a store between holders.
 - Dependencies: keep the tree small (cobra, go-keyring, gojq, toml). No telemetry.
 - Commit messages in Portuguese, imperative, one topic per commit. Pushing is disabled in this checkout.

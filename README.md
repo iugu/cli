@@ -57,7 +57,14 @@ The refresh token is stored in the OS keychain (macOS Keychain, Secret Service, 
 Manager). When the keychain is unavailable — headless Linux, containers, a `$HOME` without a login
 keychain — the CLI warns once and uses `~/.config/iugu/credentials.json` (0600). `--credentials-store
 ephemeral` keeps it in memory only. `iugu auth status --json` always exits 0 and tells the truth in
-`logged_in`; `iugu logout` revokes the grant server-side.
+`logged_in` (it checks the grant online; `--offline` to skip); `iugu logout` revokes the grant server-side.
+
+**One grant per credential holder.** Every config dir (`~/.config/iugu`, a `--profile`, or a project-local
+`IUGU_CONFIG_DIR=.iugu`) is a holder with its own stable `device_id`: Console keeps a separate grant for
+each, lists them by label ("iugu CLI on mbp (.iugu in acme)") on the Connected agents page, and logging one
+out never affects another. Sandboxed agents (Codex `workspace-write`) should keep their own login in the
+project: `IUGU_CONFIG_DIR=.iugu iugu login` (auto-gitignored). The CLI never rotates a refresh token it
+cannot persist (`store_not_writable`), so a read-only sandbox cannot burn the human's login.
 
 ## Conventions
 
@@ -66,7 +73,7 @@ ephemeral` keeps it in memory only. `iugu auth status --json` always exits 0 and
 - Exit codes: `0` ok · `1` error · `2` usage/cancelled · `4` login required · `5` approval required (the
   payload carries `approval.url`, `change_set_id`, `next_step`) · `6` stale/conflict (re-read, retry).
 - Tier 0 operations execute immediately; Tier 1 (credentials, OAuth settings, certificates, IP whitelist,
-  publish, third-party installs, discard, deploy tokens, GIA writes) become a **change set** that a human
+  publish, third-party installs, discard, deploy tokens, GIA roles/policies/members/invites) become a **change set** that a human
   approves in Console. Batch them: `iugu changeset create --op … --op … --submit --wait`.
 - Secrets are delivered once, to the requesting CLI, within one hour of approval, through
   `--write-env <file>` (0600, `.gitignore`d), `--exec "<cmd> {secret}"` (in-process substitution, no
@@ -87,7 +94,8 @@ app agreements list|publish · app images list|upload|highlight|remove · app de
 app install|uninstall|resync --workspace <id> · app token [--credential <id>] [--scope …] · app env --format dotenv|fly|netlify|vercel|json
 changeset create --op <type>:<json>… [--submit] [--wait] · changeset list|show|submit|wait|secrets|withdraw <id>
 approvals list|open|wait <id> · verify --principal … --action … · test-principal create|list|delete
-gia roles|policies|members|invites · catalog actions [--q text]
+gia roles|policies|members|invites (reads) · gia roles|policies create|update|delete · gia members set-roles|remove <id|email> · gia invites create|resend   (Tier 1, scope console:gia.write)
+catalog actions [--q text]
 agent setup [--claude|--codex|--opencode|--cursor|--vscode|--all] · docs [topic] [--llms] · completion <shell>
 ```
 
