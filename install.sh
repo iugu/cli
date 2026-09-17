@@ -1,11 +1,11 @@
 #!/bin/sh
 # Installs the latest (or IUGU_VERSION) release of the iugu CLI from GitHub Releases, verifying the
 # archive against the signed checksums.txt (cosign verification when cosign is on PATH).
-#   curl -fsSL https://raw.githubusercontent.com/iugu-private/platform2-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/iugu/cli/main/install.sh | sh
 # Env: IUGU_VERSION (e.g. 1.2.3), IUGU_INSTALL_DIR (default /usr/local/bin or ~/.local/bin), IUGU_REPO.
 set -eu
 
-REPO="${IUGU_REPO:-iugu-private/platform2-cli}"
+REPO="${IUGU_REPO:-iugu/cli}"
 API="https://api.github.com/repos/${REPO}/releases"
 DL="https://github.com/${REPO}/releases/download"
 

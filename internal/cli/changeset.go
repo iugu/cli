@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/iugu-private/platform2-cli/internal/api"
-	"github.com/iugu-private/platform2-cli/internal/config"
-	"github.com/iugu-private/platform2-cli/internal/output"
+	"github.com/iugu/cli/internal/api"
+	"github.com/iugu/cli/internal/config"
+	"github.com/iugu/cli/internal/output"
 )
 
 func (rt *Runtime) changesetCommand() *cobra.Command {

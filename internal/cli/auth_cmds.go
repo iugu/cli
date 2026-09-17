@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/iugu-private/platform2-cli/internal/api"
-	"github.com/iugu-private/platform2-cli/internal/auth"
-	"github.com/iugu-private/platform2-cli/internal/output"
-	"github.com/iugu-private/platform2-cli/internal/store"
+	"github.com/iugu/cli/internal/api"
+	"github.com/iugu/cli/internal/auth"
+	"github.com/iugu/cli/internal/output"
+	"github.com/iugu/cli/internal/store"
 )
 
 func (rt *Runtime) logoutCommand() *cobra.Command {

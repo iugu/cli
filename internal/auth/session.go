@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/iugu-private/platform2-cli/internal/store"
+	"github.com/iugu/cli/internal/store"
 )
 
 // Session is the stored login of a profile: the grant-bound refresh token plus the facts the CLI

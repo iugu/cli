@@ -20,9 +20,9 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X github.com/iugu-private/platform2-cli/internal/cli.Version={{ .Version }}
-      - -X github.com/iugu-private/platform2-cli/internal/cli.Commit={{ .ShortCommit }}
-      - -X github.com/iugu-private/platform2-cli/internal/cli.Date={{ .CommitDate }}
+      - -X github.com/iugu/cli/internal/cli.Version={{ .Version }}
+      - -X github.com/iugu/cli/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/iugu/cli/internal/cli.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -63,23 +63,23 @@ changelog:
 
 release:
   github:
-    owner: iugu-private
+    owner: iugu
     name: platform2-cli
   draft: true
   prerelease: auto
   footer: |
     ## Install
     ```
-    brew install iugu-private/tap/iugu
-    curl -fsSL https://raw.githubusercontent.com/iugu-private/platform2-cli/main/install.sh | sh
+    brew install iugu/tap/iugu
+    curl -fsSL https://raw.githubusercontent.com/iugu/cli/main/install.sh | sh
     npx @iugu/cli --help
     ```
-    Verify: `cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp 'github.com/iugu-private/platform2-cli' --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`
+    Verify: `cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp 'github.com/iugu/cli' --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`
 
 homebrew_casks:
   - name: iugu
     repository:
-      owner: iugu-private
+      owner: iugu
       name: homebrew-tap
       branch: main
     directory: Casks
@@ -101,7 +101,7 @@ homebrew_casks:
 scoops:
   - name: iugu
     repository:
-      owner: iugu-private
+      owner: iugu
       name: scoop-bucket
     homepage: https://developer.iugu.com/console/cli
     description: Platform 2 Console CLI for developers and their AI agents

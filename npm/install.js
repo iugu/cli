@@ -2,7 +2,7 @@
 // postinstall: download the iugu release matching this package's version for the current platform,
 // verify its SHA-256 against checksums.txt (signed with cosign in the release), unpack into bin/.
 // Env: IUGU_CLI_VERSION (override), IUGU_CLI_SKIP_DOWNLOAD=1 (e.g. when the binary is already on PATH),
-// IUGU_CLI_REPO (default iugu-private/platform2-cli), IUGU_CLI_BASE_URL (mirror of the release assets).
+// IUGU_CLI_REPO (default iugu/cli), IUGU_CLI_BASE_URL (mirror of the release assets).
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
@@ -21,7 +21,7 @@ if (version === "0.0.0-development") {
   console.error("@iugu/cli: development checkout; set IUGU_CLI_VERSION or IUGU_CLI_SKIP_DOWNLOAD=1");
   process.exit(0);
 }
-const repo = process.env.IUGU_CLI_REPO || "iugu-private/platform2-cli";
+const repo = process.env.IUGU_CLI_REPO || "iugu/cli";
 const platform = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform];
 const arch = { x64: "amd64", arm64: "arm64" }[process.arch];
 if (!platform || !arch) {

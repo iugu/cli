@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 .PHONY: build test lint vet fmt snapshot e2e
 
 build:
-	$(GO) build -trimpath -ldflags "-s -w -X github.com/iugu-private/platform2-cli/internal/cli.Version=$(VERSION)" -o bin/iugu ./cmd/iugu
+	$(GO) build -trimpath -ldflags "-s -w -X github.com/iugu/cli/internal/cli.Version=$(VERSION)" -o bin/iugu ./cmd/iugu
 
 test:
 	$(GO) test ./...

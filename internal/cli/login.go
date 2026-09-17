@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/iugu-private/platform2-cli/internal/auth"
-	"github.com/iugu-private/platform2-cli/internal/config"
-	"github.com/iugu-private/platform2-cli/internal/output"
+	"github.com/iugu/cli/internal/auth"
+	"github.com/iugu/cli/internal/config"
+	"github.com/iugu/cli/internal/output"
 )
 
 // DefaultScopes is what `iugu login` asks for unless --scopes narrows or widens it.

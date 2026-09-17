@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/iugu-private/platform2-cli/internal/cli"
+	"github.com/iugu/cli/internal/cli"
 )
 
 func main() {

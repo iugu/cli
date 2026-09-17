@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/iugu-private/platform2-cli/internal/agentsetup"
-	"github.com/iugu-private/platform2-cli/internal/output"
+	"github.com/iugu/cli/internal/agentsetup"
+	"github.com/iugu/cli/internal/output"
 )
 
 //go:embed skill/SKILL.md

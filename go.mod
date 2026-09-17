@@ -1,4 +1,4 @@
-module github.com/iugu-private/platform2-cli
+module github.com/iugu/cli
 
 go 1.27.1
 

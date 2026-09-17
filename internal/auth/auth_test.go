@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iugu-private/platform2-cli/internal/store"
+	"github.com/iugu/cli/internal/store"
 )
 
 // fakeAS is a minimal Console authorization server: PRM chain, token endpoint with code / refresh /

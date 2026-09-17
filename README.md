@@ -13,9 +13,9 @@ the remote endpoint `https://mcp.console.iugu.com/mcp`.
 ## Install
 
 ```sh
-brew install iugu-private/tap/iugu                                                        # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/iugu-private/platform2-cli/main/install.sh | sh  # any unix
-scoop bucket add iugu https://github.com/iugu-private/scoop-bucket && scoop install iugu  # Windows
+brew install iugu/tap/iugu                                                        # macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/iugu/cli/main/install.sh | sh  # any unix
+scoop bucket add iugu https://github.com/iugu/scoop-bucket && scoop install iugu  # Windows
 npx @iugu/cli --help                                                                      # npm shim
 ```
 
