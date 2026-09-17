@@ -96,6 +96,10 @@ func (s *Session) Save(st store.Store, profile string) error {
 // ErrLoginRequired means there is no usable login (exit code 4 in the CLI).
 var ErrLoginRequired = errors.New("login required: run `iugu login`")
 
+// ErrStoreNotWritable means the login exists but cannot be updated where it lives (sandboxed agent); the
+// access token was NOT refreshed and the stored refresh token is still valid elsewhere.
+var ErrStoreNotWritable = errors.New("login cannot be updated from here")
+
 // Fresh returns a valid access token, refreshing (and re-saving) when it expires within 30 seconds.
 func (s *Session) Fresh(ctx context.Context, c *Client, st store.Store, profile string) (string, error) {
 	if s.AccessToken != "" && time.Until(s.ExpiresAt) > 30*time.Second {
@@ -113,6 +117,14 @@ func (s *Session) Fresh(ctx context.Context, c *Client, st store.Store, profile 
 		if other, err := Load(st, profile); err == nil && other.RefreshToken != s.RefreshToken && other.AccessToken != "" && time.Until(other.ExpiresAt) > 30*time.Second {
 			*s = *other
 			return s.AccessToken, nil
+		}
+	}
+	// The refresh token rotates on use and presenting the old one again revokes the grant, so make sure
+	// the rotated token can be persisted BEFORE asking for it: writing the current session back is a
+	// harmless probe. Sandboxes that can read the store but not write it stop here with the old token intact.
+	if st != nil {
+		if err := s.Save(st, profile); err != nil {
+			return "", fmt.Errorf("%w: refusing to rotate the refresh token because the new one could not be stored (%v)", ErrStoreNotWritable, err)
 		}
 	}
 	ts, err := c.Refresh(ctx, s.RefreshToken, "")

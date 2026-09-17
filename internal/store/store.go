@@ -36,6 +36,11 @@ var KeyringTimeout = 10 * time.Second
 // ErrKeyringTimeout is returned when the OS keychain does not answer within KeyringTimeout.
 var ErrKeyringTimeout = errors.New("keychain did not answer (locked or waiting for a prompt?)")
 
+// ErrNotWritable wraps a failed write to a store that can be read: typically a sandbox (Codex
+// workspace-write, containers with a mounted $HOME) that lets the CLI see a login but not update it.
+// Callers must not rotate a refresh token when they hit it.
+var ErrNotWritable = errors.New("credential store is not writable here")
+
 func withTimeout(fn func() error) error {
 	done := make(chan error, 1)
 	go func() { done <- fn() }()
@@ -140,7 +145,13 @@ func (f *FileStore) Set(profile string, data []byte) error {
 		return err
 	}
 	entries[profile] = json.RawMessage(data)
-	return f.write(entries)
+	if err := f.write(entries); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%w: %v", ErrNotWritable, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *FileStore) Delete(profile string) error {
@@ -247,9 +258,20 @@ func (f *Fallback) Set(profile string, data []byte) error {
 			_ = f.File.Delete(profile) // never keep two copies
 			return nil
 		}
+		// A keychain that answers reads but refuses writes (sandbox) must not make us start a second copy
+		// of the login in the file: the two copies would rotate the same refresh token and burn the grant.
+		if _, getErr := f.Keychain.Get(profile); getErr == nil || errors.Is(getErr, ErrNotFound) {
+			return fmt.Errorf("%w: keychain refused the write (%v)", ErrNotWritable, err)
+		}
 		f.degrade(err)
 	}
-	return f.File.Set(profile, data)
+	if err := f.File.Set(profile, data); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%w: %v", ErrNotWritable, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Fallback) Delete(profile string) error {

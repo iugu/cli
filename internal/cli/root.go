@@ -92,6 +92,20 @@ func (rt *Runtime) exit(err error) int {
 		}
 		return ex.Code
 	}
+	if errors.Is(err, auth.ErrStoreNotWritable) || errors.Is(err, store.ErrNotWritable) {
+		msg := "This environment can read the stored login but not update it (sandbox?). The access token expired and the refresh token was NOT rotated, so the login still works outside the sandbox."
+		steps := []string{
+			"run this command outside the sandbox (or let the harness run it unsandboxed) — the refreshed token is then valid for 30 minutes here too",
+			"or give the agent its own login inside the workspace: IUGU_CONFIG_DIR=.iugu iugu login  (file store, 0600; .iugu/ is added to .gitignore), then prefix every iugu command with IUGU_CONFIG_DIR=.iugu",
+			"Codex: `sandbox_workspace_write.network_access = true` is required for any iugu call; `writable_roots = [\"~/.config/iugu\"]` lets the file store work in place",
+		}
+		if p.JSON {
+			p.Result(map[string]any{"error": map[string]any{"code": "store_not_writable", "message": msg, "detail": err.Error(), "next_steps": steps}}, nil)
+		} else {
+			p.Line("%s\n- %s", msg, strings.Join(steps, "\n- "))
+		}
+		return output.ExitFailure
+	}
 	if errors.Is(err, auth.ErrLoginRequired) || errors.Is(err, store.ErrNotFound) {
 		msg := "Login required. Run `iugu login` (or `iugu login --non-interactive` from an agent and hand the URL to a human)."
 		if p.JSON {
@@ -119,10 +133,21 @@ func (rt *Runtime) exit(err error) int {
 		}
 		return output.ExitFailure
 	}
+	hint := ""
+	if msg := err.Error(); strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "network is unreachable") || strings.Contains(msg, "no such host") {
+		hint = "no network from here? sandboxed agents need outbound HTTPS (Codex: sandbox_workspace_write.network_access = true) or the command must run outside the sandbox"
+	}
 	if p.JSON {
-		p.Result(map[string]any{"error": map[string]any{"code": "error", "message": err.Error()}}, nil)
+		e := map[string]any{"code": "error", "message": err.Error()}
+		if hint != "" {
+			e["hint"] = hint
+		}
+		p.Result(map[string]any{"error": e}, nil)
 	} else {
 		p.Line("Error: %v", err)
+		if hint != "" {
+			p.Line("Hint: %s", hint)
+		}
 	}
 	return output.ExitFailure
 }

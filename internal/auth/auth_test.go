@@ -284,3 +284,31 @@ func TestFreshSerialisesConcurrentRefreshes(t *testing.T) {
 		t.Fatalf("expected exactly one refresh, got %d", n)
 	}
 }
+
+// readOnlyStore answers reads but refuses writes, like a keychain seen from inside a sandbox.
+type readOnlyStore struct{ inner store.Store }
+
+func (r readOnlyStore) Get(p string) ([]byte, error) { return r.inner.Get(p) }
+func (r readOnlyStore) Set(string, []byte) error     { return store.ErrNotWritable }
+func (r readOnlyStore) Delete(string) error          { return store.ErrNotWritable }
+func (readOnlyStore) Name() string                   { return "ro" }
+
+func TestFreshRefusesToRotateWhenStoreIsNotWritable(t *testing.T) {
+	LockDir = t.TempDir()
+	f := newFakeAS(t)
+	_, md, _ := Discover(context.Background(), http.DefaultClient, f.api.URL)
+	c := &Client{HTTP: http.DefaultClient, Metadata: md, ClientID: "cli"}
+	mem := &store.Memory{}
+	s := &Session{RefreshToken: "rt-1", AccessToken: "expired", ExpiresAt: time.Now().Add(-time.Minute)}
+	_ = s.Save(mem, "default")
+	_, err := s.Fresh(context.Background(), c, readOnlyStore{mem}, "default")
+	if !errors.Is(err, ErrStoreNotWritable) {
+		t.Fatalf("expected ErrStoreNotWritable, got %v", err)
+	}
+	if f.refreshes.Load() != 0 {
+		t.Fatal("the refresh token must not be rotated when the result cannot be stored")
+	}
+	if s.RefreshToken != "rt-1" {
+		t.Fatal("session must be untouched")
+	}
+}

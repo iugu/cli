@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/iugu-private/platform2-cli/internal/auth"
+	"github.com/iugu-private/platform2-cli/internal/config"
 	"github.com/iugu-private/platform2-cli/internal/output"
 )
 
@@ -210,6 +212,7 @@ func (rt *Runtime) finishLogin(ts *auth.TokenSet, issuer, resource string) error
 	if err := session.Save(rt.store, rt.profileName); err != nil {
 		return fmt.Errorf("storing the login: %w", err)
 	}
+	ignoreProjectLocalConfigDir()
 	if _, ok := rt.configFile.Profiles[rt.profileName]; !ok || rt.configFile.Profiles[rt.profileName].API != rt.profile.API {
 		p := rt.configFile.Profiles[rt.profileName]
 		p.API = rt.profile.API
@@ -251,4 +254,26 @@ func openBrowser(url string) bool {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start() == nil
+}
+
+// ignoreProjectLocalConfigDir adds IUGU_CONFIG_DIR to .gitignore when it lives under the working directory
+// (sandboxed agents keep their login in the workspace: `IUGU_CONFIG_DIR=.iugu iugu login`).
+func ignoreProjectLocalConfigDir() {
+	dir := os.Getenv(config.EnvConfigDir)
+	if dir == "" {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return
+	}
+	rel, err := filepath.Rel(cwd, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return
+	}
+	ensureGitignore(cwd, filepath.ToSlash(rel)+"/")
 }

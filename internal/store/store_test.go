@@ -149,3 +149,42 @@ func compact(v []byte) string {
 	_ = json.Compact(&buf, v)
 	return buf.String()
 }
+
+type readableNotWritable struct{ inner Store }
+
+func (r readableNotWritable) Get(p string) ([]byte, error) { return r.inner.Get(p) }
+func (r readableNotWritable) Set(string, []byte) error     { return errors.New("exit status 161") }
+func (r readableNotWritable) Delete(string) error          { return errors.New("exit status 161") }
+func (readableNotWritable) Name() string                   { return "ro-keychain" }
+
+func TestFallbackDoesNotSplitBrainWhenKeychainIsReadOnly(t *testing.T) {
+	kc := &Memory{}
+	_ = kc.Set("default", []byte(`{"rt":"old"}`))
+	file := &FileStore{Path: filepath.Join(t.TempDir(), "c.json")}
+	fb := &Fallback{Keychain: readableNotWritable{kc}, File: file}
+	if _, err := fb.Get("default"); err != nil {
+		t.Fatal(err)
+	}
+	err := fb.Set("default", []byte(`{"rt":"new"}`))
+	if !errors.Is(err, ErrNotWritable) {
+		t.Fatalf("expected ErrNotWritable, got %v", err)
+	}
+	if _, err := file.Get("default"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("the file must not receive a second copy of the login")
+	}
+	if fb.Name() != "keychain" {
+		t.Fatalf("must not degrade to file: %s", fb.Name())
+	}
+}
+
+func TestFileStoreReportsNotWritable(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Skip("cannot make dir read-only")
+	}
+	defer func() { _ = os.Chmod(dir, 0o700) }()
+	f := &FileStore{Path: filepath.Join(dir, "c.json")}
+	if err := f.Set("default", []byte(`{}`)); !errors.Is(err, ErrNotWritable) {
+		t.Fatalf("expected ErrNotWritable, got %v", err)
+	}
+}
