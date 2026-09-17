@@ -27,7 +27,14 @@ type Client struct {
 	}
 	Token     TokenSource
 	UserAgent string
+	// OnGate is consulted when the API answers a "human first" 403 (elevation_required, insufficient_scope,
+	// workspace_not_consented). It may involve the human (open the URL, wait) and return true to have the
+	// request retried once with the same token: the server changed the grant, not the token.
+	OnGate func(ctx context.Context, err *Error) bool
 }
+
+// Gate codes the API resolves on the grant side (see OnGate).
+var GateCodes = map[string]bool{"elevation_required": true, "insufficient_scope": true, "workspace_not_consented": true}
 
 // Error is an API error response ({ "error": { code, message, details } }).
 type Error struct {
@@ -64,6 +71,17 @@ type Options struct {
 
 // Do performs a JSON request. Bodies that are not JSON objects are returned in Raw only.
 func (c *Client) Do(ctx context.Context, method, path string, body any, opts *Options) (*Response, error) {
+	r, err := c.once(ctx, method, path, body, opts)
+	var apiErr *Error
+	if err != nil && c.OnGate != nil && errors.As(err, &apiErr) && GateCodes[apiErr.Code] && opts.rawBodyUnused() && c.OnGate(ctx, apiErr) {
+		return c.once(ctx, method, path, body, opts)
+	}
+	return r, err
+}
+
+func (o *Options) rawBodyUnused() bool { return o == nil || o.RawBody == nil }
+
+func (c *Client) once(ctx context.Context, method, path string, body any, opts *Options) (*Response, error) {
 	if opts == nil {
 		opts = &Options{}
 	}

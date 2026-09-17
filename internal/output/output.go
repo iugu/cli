@@ -22,6 +22,7 @@ const (
 	ExitAuthRequired = 4
 	ExitApproval     = 5
 	ExitConflict     = 6
+	ExitHumanGate    = 7 // the human must act on the grant first (verify identity / widen it); payload has the URL
 )
 
 // Exit carries an exit code and, for agents, a structured payload printed as JSON.

@@ -47,6 +47,7 @@ type Runtime struct {
 
 	jsonFlag       bool
 	jqFlag         string
+	gateHandled    bool
 	apiFlag        string
 	profileFlag    string
 	storeFlag      string
@@ -120,6 +121,22 @@ func (rt *Runtime) exit(err error) int {
 	}
 	var apiErr *api.Error
 	if errors.As(err, &apiErr) {
+		if api.GateCodes[apiErr.Code] && apiErr.Details != nil {
+			// the human must act on the grant first; agents get the URL and a next step (exit 7)
+			url := api.Str(apiErr.Details, "elevate_url")
+			if url == "" {
+				url = api.Str(apiErr.Details, "widen_url")
+			}
+			if url != "" {
+				payload := map[string]any{"error": apiErr, "url": url, "next_step": api.Str(apiErr.Details, "next_step") + " Then re-run this exact command."}
+				if p.JSON {
+					p.Result(payload, nil)
+				} else {
+					p.Line("%s\nOpen: %s\nThen re-run this command.", apiErr.Message, url)
+				}
+				return output.ExitHumanGate
+			}
+		}
 		if p.JSON {
 			p.Result(map[string]any{"error": apiErr}, nil)
 		} else {
@@ -281,7 +298,88 @@ func (rt *Runtime) apiClient(ctx context.Context) (*api.Client, error) {
 		}
 		return session.Fresh(ctx, oauth, rt.store, rt.profileName)
 	}
+	client.OnGate = rt.handleGate(client)
 	return client, nil
+}
+
+// handleGate turns the API's "human first" answers into a wait: for a human at a terminal the CLI opens
+// the page (verify identity / widen the grant), polls /v1/me until the grant reflects it and retries; an
+// agent gets exit 7 with the URL and a next_step instead (its human is elsewhere).
+func (rt *Runtime) handleGate(client *api.Client) func(context.Context, *api.Error) bool {
+	return func(ctx context.Context, apiErr *api.Error) bool {
+		if rt.IsAgent() || rt.gateHandled {
+			return false
+		}
+		url := api.Str(apiErr.Details, "elevate_url")
+		if url == "" {
+			url = api.Str(apiErr.Details, "widen_url")
+		}
+		if url == "" {
+			return false
+		}
+		rt.gateHandled = true // one round per command
+		switch apiErr.Code {
+		case "elevation_required":
+			rt.Printer.Line("Verify your identity for this agent (%s) to continue:\n\n  %s\n\nWaiting…", api.Str(apiErr.Details, "acr"), url)
+		default:
+			rt.Printer.Line("This agent's authorization does not cover that yet. Widen it here:\n\n  %s\n\nWaiting…", url)
+		}
+		_ = openBrowser(url)
+		deadline := time.Now().Add(10 * time.Minute)
+		for time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(gatePollInterval):
+			}
+			r, err := client.Get(ctx, "/v1/me", nil)
+			if err != nil {
+				continue
+			}
+			grant := api.Map(r.Body, "grant")
+			switch apiErr.Code {
+			case "elevation_required":
+				for _, e := range api.List(grant, "elevations") {
+					if m, _ := e.(map[string]any); api.Str(m, "acr") == api.Str(apiErr.Details, "acr") || api.Str(m, "acr") == "transfers" {
+						rt.Printer.Line("Verified. Retrying…")
+						return true
+					}
+				}
+			case "insufficient_scope":
+				want := toStrings(api.List(apiErr.Details, "scopes"))
+				have := toStrings(api.List(grant, "scopes"))
+				if containsAll(have, want) {
+					rt.Printer.Line("Authorization widened. Retrying…")
+					return true
+				}
+			case "workspace_not_consented":
+				if api.Str(grant, "consent_updated_at") != "" {
+					rt.Printer.Line("Authorization widened. Retrying…")
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// gatePollInterval is how often the CLI asks /v1/me whether the human acted (tests shorten it).
+var gatePollInterval = 3 * time.Second
+
+func containsAll(have, want []string) bool {
+	for _, w := range want {
+		found := false
+		for _, h := range have {
+			if h == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // oauthForSession builds the token client from the facts stored at login (no network discovery needed

@@ -71,7 +71,10 @@ cannot persist (`store_not_writable`), so a read-only sandbox cannot burn the hu
 - `--json` on every command: stable JSON on stdout, diagnostics on stderr, nothing else. `--jq <expr>`
   filters the result (strings print raw). Long waits stream NDJSON events (`{"event":…}`).
 - Exit codes: `0` ok · `1` error · `2` usage/cancelled · `4` login required · `5` approval required (the
-  payload carries `approval.url`, `change_set_id`, `next_step`) · `6` stale/conflict (re-read, retry).
+  payload carries `approval.url`, `change_set_id`, `next_step`) · `6` stale/conflict (re-read, retry) · `7` the
+  human must act on the grant first — verify their identity (`elevation_required`, 15-minute window) or widen
+  the authorization (`insufficient_scope`, `workspace_not_consented`) on the URL in the payload, then re-run.
+  At a terminal the CLI opens that page itself, waits for the grant to change and retries; the token never changes.
 - Tier 0 operations execute immediately; Tier 1 (credentials, OAuth settings, certificates, IP whitelist,
   publish, third-party installs, discard, deploy tokens, GIA roles/policies/members/invites) become a **change set** that a human
   approves in Console. Batch them: `iugu changeset create --op … --op … --submit --wait`.

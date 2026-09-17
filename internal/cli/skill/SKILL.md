@@ -5,7 +5,7 @@ description: Build, configure, test and publish iugu Platform 2 apps with the `i
 
 # iugu — working with Console from an AI coding session
 
-Always call the CLI with `--json`. Read `error.code` and the exit code: `0` ok · `1` error · `2` usage · `4` login required (`iugu login`) · `5` approval required (payload has `approval.url` and `next_step`) · `6` stale/conflict (re-read, retry). Run one `iugu` command per shell call (no `; echo $?` — your tool already reports the exit code; chained commands trip permission rules).
+Always call the CLI with `--json`. Read `error.code` and the exit code: `0` ok · `1` error · `2` usage · `4` login required (`iugu login`) · `5` approval required (payload has `approval.url` and `next_step`) · `6` stale/conflict (re-read, retry) · `7` **the human must act on this agent's authorization first** (payload has `url` and `next_step`): `elevation_required` — the developer verifies their identity (MFA) on `url`, then you re-run the same command (the verification lasts 15 minutes); `insufficient_scope` / `workspace_not_consented` — the developer widens the authorization on `url` (no new login), then you re-run. Never try to log in again to fix a 7. Run one `iugu` command per shell call (no `; echo $?` — your tool already reports the exit code; chained commands trip permission rules).
 
 ## Golden path {#golden-path}
 
@@ -46,4 +46,8 @@ Secrets are delivered once, only to this CLI, within one hour of approval. Use `
 
 ## Exit codes {#exit-codes}
 
-0 ok · 1 error · 2 usage or cancelled · 4 authentication required · 5 approval required (payload printed) · 6 stale or conflict.
+0 ok · 1 error · 2 usage or cancelled · 4 authentication required · 5 approval required (payload printed) · 6 stale or conflict · 7 human must act on the grant first (verify identity or widen the authorization; payload has `url`, then re-run the same command).
+
+## Who approves what {#approval-policy}
+
+Every change set carries `approval_policy`: `four_eyes` (the requester cannot approve their own change — e.g. a member changing their own roles; someone else with the permissions must), `approver_actions` (what the approver must hold), `requester_elevation` (step-up levels the requester proved before requesting; all GIA writes require `config`). Tell the human who can approve when `four_eyes` is true.

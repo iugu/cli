@@ -18,14 +18,17 @@ import (
 
 // fakeConsole stands for the AS + Lifecycle API together (same host), enough for the command flows.
 type fakeConsole struct {
-	srv          *httptest.Server
-	statusCode   atomic.Int32 // change set status progression
-	secretsHit   atomic.Int32
-	devicePoll   atomic.Int32
-	revokedGrant bool                      // when true every API call answers 401 invalid_token
-	lastDevice   struct{ id, name string } // device identity seen on /device_authorization
-	lastGia      string                    // last GIA write seen: "METHOD /path"
-	lastGiaBody  map[string]any
+	srv              *httptest.Server
+	statusCode       atomic.Int32 // change set status progression
+	secretsHit       atomic.Int32
+	devicePoll       atomic.Int32
+	revokedGrant     bool                      // when true every API call answers 401 invalid_token
+	lastDevice       struct{ id, name string } // device identity seen on /device_authorization
+	lastGia          string                    // last GIA write seen: "METHOD /path"
+	lastGiaBody      map[string]any
+	requireElevation bool // GIA writes answer elevation_required until the fake human "verifies" (second /v1/me poll)
+	elevated         atomic.Int32
+	mePolls          atomic.Int32
 }
 
 func jwtWith(claims map[string]any) string {
@@ -79,8 +82,13 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 		if !auth(w, r) {
 			return
 		}
+		grant := map[string]any{"scopes": []string{"console:read"}, "elevations": []any{}}
+		if f.mePolls.Add(1) >= 2 && f.requireElevation { // the human verified after the first poll
+			f.elevated.Store(1)
+			grant["elevations"] = []any{map[string]any{"acr": "config"}}
+		}
 		writeJSON(w, 200, map[string]any{"principal": map[string]any{"sub": "user:abc", "name": "Dev", "email": "dev@iugu.test"}, "client": map[string]any{"name": "iugu CLI"},
-			"grant": map[string]any{"scopes": []string{"console:read"}}, "workspaces": []any{map[string]any{"id": "ws1", "name": "Dev Workspace", "roles": []any{map[string]any{"id": "r1", "name": "Administrator"}}}}})
+			"grant": grant, "workspaces": []any{map[string]any{"id": "ws1", "name": "Dev Workspace", "roles": []any{map[string]any{"id": "r1", "name": "Administrator"}}}}})
 	})
 	mux.HandleFunc("/v1/workspaces/ws1/apps", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
@@ -106,6 +114,12 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.lastGia = r.Method + " " + r.URL.Path
 		f.lastGiaBody = body
+		if f.requireElevation && f.elevated.Load() == 0 {
+			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_user_authentication", acr_values="urn:iugu:grant_scopes:config"`)
+			writeJSON(w, 403, map[string]any{"error": map[string]any{"code": "elevation_required", "message": "verify first",
+				"details": map[string]any{"acr": "config", "ttl": 900, "elevate_url": f.srv.URL + "/elevate?acr=config", "next_step": "open elevate_url"}}})
+			return
+		}
 		writeJSON(w, 202, map[string]any{"id": "cs9", "status": "pending_approval", "approval": map[string]any{"url": f.srv.URL + "/approvals/cs9"},
 			"operations": []any{map[string]any{"op": "gia.x"}}, "diff": []any{map[string]any{"summary": "GIA change"}}})
 	})
@@ -436,5 +450,37 @@ func TestGiaWritesAreTier1AndResolveMembersByEmail(t *testing.T) {
 	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "x", "--json")
 	if code != 2 || !strings.Contains(out, "--policies") {
 		t.Fatalf("usage error expected: %d %s", code, out)
+	}
+}
+
+func TestElevationGateAgentExit7AndHumanWaitRetry(t *testing.T) {
+	f := newFakeConsole(t)
+	f.requireElevation = true
+	dir := t.TempDir()
+	code, out, _ := run(t, dir, f.srv.URL, "login", "--json", "--agent", "yes")
+	if code != 0 {
+		t.Fatalf("login: %d %s", code, out)
+	}
+	var hand map[string]any
+	_ = json.Unmarshal([]byte(out), &hand)
+	run(t, dir, f.srv.URL, "login", "--complete", hand["handle"].(string), "--json")
+	run(t, dir, f.srv.URL, "login", "--complete", hand["handle"].(string), "--json")
+
+	// agent mode: exit 7, URL + next_step, no waiting
+	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "S", "--policies", "p1", "--json", "--agent", "yes")
+	if code != 7 || !strings.Contains(out, "/elevate?acr=config") || !strings.Contains(out, "re-run this exact command") || !strings.Contains(out, `"elevation_required"`) {
+		t.Fatalf("agent gate: %d %s", code, out)
+	}
+	if f.elevated.Load() != 0 {
+		t.Fatal("agent mode must not poll for the human")
+	}
+
+	// human mode: the CLI waits for the elevation (fake: verified on the second /v1/me poll) and retries → 202 → exit 5
+	oldPoll := gatePollInterval
+	gatePollInterval = 10 * time.Millisecond
+	defer func() { gatePollInterval = oldPoll }()
+	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "S", "--policies", "p1", "--json", "--agent", "no")
+	if code != 5 || !strings.Contains(out, "approvals/cs9") {
+		t.Fatalf("human gate should wait, retry and reach the approval: %d %s", code, out)
 	}
 }
