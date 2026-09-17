@@ -61,6 +61,7 @@ func (rt *Runtime) appPermissionsCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "permissions", Short: "Implemented/consumed actions, grant scopes, allowed workspaces (Tier 0)"}
 	get := &cobra.Command{
 		Use: "get", Short: "Show permissions",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -82,6 +83,7 @@ func (rt *Runtime) appPermissionsCommand() *cobra.Command {
 	var ifMatch string
 	set := &cobra.Command{
 		Use: "set", Short: "Set permissions (changing consumed actions makes installing workspaces re-consent)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -134,6 +136,7 @@ func (rt *Runtime) appOauthCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "oauth", Short: "OAuth settings of the app"}
 	set := &cobra.Command{
 		Use: "set", Short: "Set the app URL and redirect callbacks (Tier 1 → approval)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -167,6 +170,7 @@ func (rt *Runtime) appCredentialsCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "credentials", Short: "OAuth client secrets of the app"}
 	list := &cobra.Command{
 		Use: "list", Short: "List credentials (prefix and status; never secrets)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -179,6 +183,7 @@ func (rt *Runtime) appCredentialsCommand() *cobra.Command {
 	}
 	create := &cobra.Command{
 		Use: "create --name <name> [--workspaces <ids>]", Short: "Request a credential (Tier 1 → approval; the secret is delivered once to this CLI)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -197,6 +202,7 @@ func (rt *Runtime) appCredentialsCommand() *cobra.Command {
 	var credentialID string
 	rotate := &cobra.Command{
 		Use: "rotate --id <credential-id>", Short: "Rotate a credential (new secret, old one revoked; Tier 1)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -209,6 +215,7 @@ func (rt *Runtime) appCredentialsCommand() *cobra.Command {
 	addApprovalFlags(rotate.Flags(), &opts)
 	revoke := &cobra.Command{
 		Use: "revoke --id <credential-id>", Short: "Revoke a credential (Tier 1)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -228,7 +235,7 @@ func (rt *Runtime) appCertificatesCommand() *cobra.Command {
 	var appFlag, keyFile, certID string
 	opts := approvalOptions{}
 	cmd := &cobra.Command{Use: "certificates", Short: "Client certificates of the app"}
-	list := &cobra.Command{Use: "list", Short: "List certificates", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List certificates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -237,7 +244,7 @@ func (rt *Runtime) appCertificatesCommand() *cobra.Command {
 			return []string{api.Str(m, "id"), short(api.Str(m, "thumbprint"), 20), api.Str(m, "not_after"), api.Str(m, "revoked")}
 		})
 	}}
-	add := &cobra.Command{Use: "add --public-key <file.pem>", Short: "Register an RSA public key (Tier 1)", RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add --public-key <file.pem>", Short: "Register an RSA public key (Tier 1)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -250,7 +257,7 @@ func (rt *Runtime) appCertificatesCommand() *cobra.Command {
 	}}
 	add.Flags().StringVar(&keyFile, "public-key", "", "PEM file with the RSA public key")
 	addApprovalFlags(add.Flags(), &opts)
-	revoke := &cobra.Command{Use: "revoke --id <certificate-id>", Short: "Revoke a certificate (Tier 1)", RunE: func(cmd *cobra.Command, args []string) error {
+	revoke := &cobra.Command{Use: "revoke --id <certificate-id>", Short: "Revoke a certificate (Tier 1)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -269,7 +276,7 @@ func (rt *Runtime) appIPWhitelistCommand() *cobra.Command {
 	var ips []string
 	opts := approvalOptions{}
 	cmd := &cobra.Command{Use: "ip-whitelist", Short: "IP whitelist of the app"}
-	set := &cobra.Command{Use: "set --ips <cidr,...>", Short: "Replace the whitelist (≤ 5 CIDR; empty disables) — Tier 1", RunE: func(cmd *cobra.Command, args []string) error {
+	set := &cobra.Command{Use: "set --ips <cidr,...>", Short: "Replace the whitelist (≤ 5 CIDR; empty disables) — Tier 1", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -330,7 +337,7 @@ func (rt *Runtime) appEntitlementsCommand() *cobra.Command {
 func (rt *Runtime) appAgreementsCommand() *cobra.Command {
 	var appFlag, file string
 	cmd := &cobra.Command{Use: "agreements", Short: "Terms the installing workspaces must accept"}
-	list := &cobra.Command{Use: "list", Short: "List agreements and versions", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List agreements and versions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -339,7 +346,7 @@ func (rt *Runtime) appAgreementsCommand() *cobra.Command {
 			return []string{api.Str(m, "id"), api.Str(m, "name"), fmt.Sprint(len(api.List(m, "versions")))}
 		})
 	}}
-	publish := &cobra.Command{Use: "publish -f <terms.md>", Short: "Publish a new agreement version (Tier 0)", RunE: func(cmd *cobra.Command, args []string) error {
+	publish := &cobra.Command{Use: "publish -f <terms.md>", Short: "Publish a new agreement version (Tier 0)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -368,7 +375,7 @@ func (rt *Runtime) appAgreementsCommand() *cobra.Command {
 func (rt *Runtime) appImagesCommand() *cobra.Command {
 	var appFlag string
 	cmd := &cobra.Command{Use: "images", Short: "Store images of the app"}
-	list := &cobra.Command{Use: "list", Short: "List images", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List images", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -454,7 +461,7 @@ func (rt *Runtime) appDeployTokensCommand() *cobra.Command {
 	var scope []string
 	opts := approvalOptions{}
 	cmd := &cobra.Command{Use: "deploy-tokens", Short: "CI tokens attenuated to one app (oauth, ip_whitelist, rotate_self)"}
-	list := &cobra.Command{Use: "list", Short: "List deploy tokens", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "List deploy tokens", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -477,7 +484,7 @@ func (rt *Runtime) appDeployTokensCommand() *cobra.Command {
 		})
 		return nil
 	}}
-	create := &cobra.Command{Use: "create --scope oauth,rotate_self [--expires 24h]", Short: "Request a deploy token (Tier 1; delivered once, use it as IUGU_TOKEN in CI)", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create --scope oauth,rotate_self [--expires 24h]", Short: "Request a deploy token (Tier 1; delivered once, use it as IUGU_TOKEN in CI)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err
@@ -496,7 +503,7 @@ func (rt *Runtime) appDeployTokensCommand() *cobra.Command {
 	create.Flags().StringSliceVar(&scope, "scope", []string{"oauth", "ip_whitelist", "rotate_self"}, "oauth | ip_whitelist | rotate_self")
 	create.Flags().StringVar(&expires, "expires", "", "lifetime, e.g. 24h, 7d (max 30d)")
 	addApprovalFlags(create.Flags(), &opts)
-	revoke := &cobra.Command{Use: "revoke --id <token-id>", Short: "Revoke a deploy token (Tier 0)", RunE: func(cmd *cobra.Command, args []string) error {
+	revoke := &cobra.Command{Use: "revoke --id <token-id>", Short: "Revoke a deploy token (Tier 0)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := rt.appArg(appFlag)
 		if err != nil {
 			return err

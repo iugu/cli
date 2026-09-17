@@ -174,6 +174,7 @@ func (rt *Runtime) appListCommand() *cobra.Command {
 	var workspace string
 	cmd := &cobra.Command{
 		Use:   "list",
+		Args:  cobra.NoArgs,
 		Short: "Apps published by a workspace (publisher view)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := rt.workspaceArg(workspace)
@@ -203,6 +204,15 @@ func (rt *Runtime) appListCommand() *cobra.Command {
 	return cmd
 }
 
+// appFromArgs lets `iugu app <cmd> [app-id]` name the app positionally (wins over --app and iugu.toml) —
+// agents reach for `iugu app discard <id>` naturally; silently ignoring the id would act on the wrong app.
+func appFromArgs(args []string, flag string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return flag
+}
+
 func (rt *Runtime) appGetCommand() *cobra.Command {
 	var appFlag string
 	cmd := &cobra.Command{
@@ -210,10 +220,7 @@ func (rt *Runtime) appGetCommand() *cobra.Command {
 		Short: "Show an app (full view for your own apps)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 1 {
-				appFlag = args[0]
-			}
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -240,10 +247,11 @@ func (rt *Runtime) appUpdateCommand() *cobra.Command {
 	var appFlag, name, description, promo, serviceURL, ifMatch string
 	var categories []string
 	cmd := &cobra.Command{
-		Use:   "update",
+		Use:   "update [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Update name, description, promotional text, categories or service API URL (Tier 0)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -293,10 +301,11 @@ func (rt *Runtime) appPublishCommand() *cobra.Command {
 	var public, draft, billable string
 	opts := approvalOptions{}
 	cmd := &cobra.Command{
-		Use:   "publish",
+		Use:   "publish [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Publishing decision: leave draft, make public, mark billable (Tier 1 → approval)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -336,10 +345,11 @@ func (rt *Runtime) appInstallCommands() []*cobra.Command {
 	var workspace, appFlag string
 	opts := approvalOptions{}
 	install := &cobra.Command{
-		Use:   "install",
+		Use:   "install [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Install an app in a workspace (own apps: immediate; third-party: approval)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -365,6 +375,7 @@ func (rt *Runtime) appInstallCommands() []*cobra.Command {
 	var installationID string
 	uninstall := &cobra.Command{
 		Use:   "uninstall --installation <id>",
+		Args:  cobra.NoArgs,
 		Short: "Uninstall an app from a workspace",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.installationID(cmd, installationID, appFlag, workspace)
@@ -388,6 +399,7 @@ func (rt *Runtime) appInstallCommands() []*cobra.Command {
 
 	resync := &cobra.Command{
 		Use:   "resync --installation <id>",
+		Args:  cobra.NoArgs,
 		Short: "Accept the app's changed permissions in a workspace (own: immediate; third-party: approval)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.installationID(cmd, installationID, appFlag, workspace)
@@ -445,13 +457,14 @@ func (rt *Runtime) installationID(cmd *cobra.Command, explicit, appFlag, workspa
 func (rt *Runtime) appTokenCommand() *cobra.Command {
 	var appFlag, audience, scope, execCmd, writeEnv string
 	cmd := &cobra.Command{
-		Use:   "token",
+		Use:   "token [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Mint a short-lived Console app token for one of your own apps (test /verify, /userinfo, other apps)",
 		Long: `Prints the token unless a sink is given: --exec "curl -H 'Authorization: Bearer {token}' …" runs a command with the
 token substituted in-process (also as $IUGU_ACCESS_TOKEN); --write-env FILE stores IUGU_ACCESS_TOKEN (0600). Agents should
 prefer a sink so the token never lands in a transcript.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -511,10 +524,11 @@ prefer a sink so the token never lands in a transcript.`,
 func (rt *Runtime) appEnvCommand() *cobra.Command {
 	var appFlag, format, workspace string
 	cmd := &cobra.Command{
-		Use:   "env",
+		Use:   "env [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Print the non-secret integration environment (dotenv | fly | netlify | vercel | json)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
@@ -562,10 +576,11 @@ func (rt *Runtime) appDiscardCommand() *cobra.Command {
 	var appFlag string
 	opts := approvalOptions{}
 	cmd := &cobra.Command{
-		Use:   "discard",
+		Use:   "discard [app-id]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Discard (soft-delete) an app — approval required; refused for billable apps",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := rt.appArg(appFlag)
+			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
 			}
