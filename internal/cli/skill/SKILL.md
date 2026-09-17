@@ -19,6 +19,8 @@ Always call the CLI with `--json`. Read `error.code` and the exit code: `0` ok �
 
 Pending work: `iugu approvals list --json` (what still needs a human); `iugu changeset list --json` (compact history; `show <id>` for details).
 
+Workspace access (GIA) — reads are Tier 0, every write is Tier 1 and needs the `console:gia.write` scope: `iugu gia roles|policies|members|invites --json`; `iugu gia policies create --name Invoices --actions <tag>:invoice.read,<tag>:invoice.create`; `iugu gia roles create --name Support --policies <policy-id>`; `iugu gia members set-roles <member-id|email> --roles <role-id>`; `iugu gia invites create --email dev@acme.test --roles <role-id>`. Batch several in one approval with `iugu changeset create --op gia.roles.upsert:{…} --op gia.invites.create:{…} --submit` (ids must exist before the batch).
+
 ## Tiers — what needs a human {#tiers}
 
 Tier 0 (agent alone, within scope and the developer's permissions): read anything; create app; name/description/images/categories; permissions; entitlements; agreements; install/uninstall/resync **your own** apps; temp principals; policy simulator; own-app tokens; prepare change sets.
@@ -32,6 +34,15 @@ Secrets are delivered once, only to this CLI, within one hour of approval. Use `
 ## Integration facts {#integration}
 
 `iugu app init --json` and `iugu app env --format json` print: `issuer`, `authorization_url`, `token_url`, `jwks_url`, `verify_url`, `userinfo_url`, `client_id` (= app id), `app_tag`, `workspace_id`, ACR values (`urn:iugu:grant_scopes:informations|config|transfers`). Users log in through the authorization code flow with PKCE; the app authenticates at `token_url` with client_id + client_secret; app-to-app calls use `client_credentials`; `/verify` takes `workspace_id`, `principals[]`, `actions[]` and answers per action. Actions your app implements are `<app_tag>:<action>`.
+
+## Sandboxes and harness quirks {#sandboxes}
+
+- **No network** (Codex `workspace-write` default, some CI): every `iugu` call fails with a connection error and a hint. Ask the human to enable outbound network for the sandbox (Codex: `sandbox_workspace_write.network_access = true`) or to run the command outside it.
+- **Login cannot be updated** (`store_not_writable`: the keychain or `~/.config/iugu` is read-only from the sandbox): the CLI refuses to rotate the refresh token so the human's login stays valid. Keep your own login inside the project instead: `IUGU_CONFIG_DIR=.iugu iugu login --json` (device flow; `.iugu/` is git-ignored automatically), then prefix every `iugu` command with `IUGU_CONFIG_DIR=.iugu`. It is a separate credential holder with its own grant: logging it out never affects the human's terminal.
+- **Scopes**: `insufficient_scope` means the grant lacks the scope of the operation (GIA writes need `console:gia.write`). Re-consent: `iugu login --scopes "<current scopes> console:gia.write"`.
+- **Turn boundaries**: background `iugu changeset wait` processes die when your turn ends; when resumed, re-run the same `wait` (secrets stay collectable for one hour after approval).
+- **One command per shell call**; no `; echo $?` chains — your tool reports the exit code and chained commands trip permission rules.
+- **Claude Code**: `Bash(iugu:*)` in `permissions.allow` avoids prompts; project settings apply only after the workspace is trusted once.
 
 ## Exit codes {#exit-codes}
 

@@ -65,12 +65,16 @@ Files are written under $HOME; set HOME to a scratch directory to preview. --pri
 			if err != nil {
 				return err
 			}
-			rt.Printer.Result(map[string]any{"mcp_url": mcpURL, "results": results, "agents_md": agentsSnippet}, func(w io.Writer) {
+			recommendations := harnessRecommendations(results)
+			rt.Printer.Result(map[string]any{"mcp_url": mcpURL, "results": results, "agents_md": agentsSnippet, "recommendations": recommendations}, func(w io.Writer) {
 				rows := [][]string{}
 				for _, r := range results {
 					rows = append(rows, []string{r.Harness, r.Action, r.Config, r.Note})
 				}
 				output.Table(w, []string{"HARNESS", "ACTION", "CONFIG", "NOTE"}, rows)
+				for _, rec := range recommendations {
+					fmt.Fprintf(w, "\n%s — %s\n%s\n", rec.Harness, rec.Title, rec.Text)
+				}
 				fmt.Fprintf(w, "\nAdd to your project's AGENTS.md:\n%s\n", agentsSnippet)
 			})
 			return nil
@@ -85,6 +89,42 @@ Files are written under $HOME; set HOME to a scratch directory to preview. --pri
 	setup.Flags().StringVar(&mcpURL, "mcp-url", "", "remote MCP URL (default derived from the API host)")
 	cmd.AddCommand(setup)
 	return cmd
+}
+
+// Recommendation is advice `agent setup` prints but deliberately does not apply: it changes how the
+// harness sandboxes every command, which is the user's call.
+type Recommendation struct {
+	Harness string `json:"harness"`
+	Title   string `json:"title"`
+	Text    string `json:"text"`
+}
+
+func harnessRecommendations(results []agentsetup.Result) []Recommendation {
+	var recs []Recommendation
+	for _, r := range results {
+		if r.Action == "skipped" {
+			continue
+		}
+		switch r.Harness {
+		case "codex":
+			recs = append(recs, Recommendation{Harness: "codex", Title: "sandbox settings (not written — review first)",
+				Text: `Codex runs commands in a sandbox that, by default, has no network and can only write inside the
+project. iugu needs outbound HTTPS, and refreshing its login needs a writable credential store. Either:
+  • let the agent keep its own login inside the project (no config change):
+      IUGU_CONFIG_DIR=.iugu iugu login      # file store, 0600, .iugu/ is git-ignored; one grant per project
+  • or, in ~/.codex/config.toml, loosen the sandbox for every command Codex runs:
+      [sandbox_workspace_write]
+      network_access = true                 # required for any iugu call
+      writable_roots = ["~/.config/iugu"]   # lets the default login refresh in place
+In interactive Codex the agent can also ask you to run a failing command outside the sandbox.`})
+		case "claude":
+			recs = append(recs, Recommendation{Harness: "claude", Title: "permissions",
+				Text: `Allow the CLI without prompts by adding "Bash(iugu:*)" to permissions.allow in the project's
+.claude/settings.json (the workspace must be trusted once, interactively, before project settings apply).
+Background waits (iugu changeset wait) die when a turn ends: the agent re-runs them when resumed.`})
+		}
+	}
+	return recs
 }
 
 // deriveMCPURL maps https://api.console.<domain> to https://mcp.console.<domain>/mcp.
@@ -105,7 +145,7 @@ func (rt *Runtime) docsCommand() *cobra.Command {
 	var llms bool
 	cmd := &cobra.Command{
 		Use:   "docs [topic]",
-		Short: "Documentation for agents and humans (topics: golden-path, tiers, exit-codes, secrets, integration; --llms prints llms.txt)",
+		Short: "Documentation for agents and humans (topics: golden-path, tiers, secrets, integration, sandboxes, exit-codes; --llms prints llms.txt)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if llms {
 				fmt.Fprint(rt.Printer.Out, llmsText)
@@ -119,7 +159,7 @@ func (rt *Runtime) docsCommand() *cobra.Command {
 			if topic != "all" {
 				text = section(skillMarkdown, topic)
 				if text == "" {
-					return &output.Exit{Code: output.ExitUsage, Message: "unknown topic; try golden-path, tiers, exit-codes, secrets, integration"}
+					return &output.Exit{Code: output.ExitUsage, Message: "unknown topic; try golden-path, tiers, secrets, integration, sandboxes, exit-codes"}
 				}
 			}
 			fmt.Fprint(rt.Printer.Out, text)
