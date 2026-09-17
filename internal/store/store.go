@@ -4,6 +4,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,8 +54,13 @@ func withTimeout(fn func() error) error {
 	}
 }
 
-// Keyring uses the OS keychain (macOS Keychain, Secret Service, Windows Credential Manager).
-type Keyring struct{ Service string }
+// Keyring uses the OS keychain (macOS Keychain, Secret Service, Windows Credential Manager). The
+// keychain is per OS user, not per config dir, so entries of a non-default config dir (a project-local
+// .iugu/, IUGU_CONFIG_DIR) carry a Namespace: each config dir is its own credential holder.
+type Keyring struct {
+	Service   string
+	Namespace string
+}
 
 func (k Keyring) svc() string {
 	if k.Service != "" {
@@ -62,10 +69,17 @@ func (k Keyring) svc() string {
 	return service
 }
 
+func (k Keyring) account(profile string) string {
+	if k.Namespace == "" {
+		return profile
+	}
+	return profile + "@" + k.Namespace
+}
+
 func (k Keyring) Get(profile string) ([]byte, error) {
 	var v string
 	err := withTimeout(func() (err error) {
-		v, err = keyring.Get(k.svc(), profile)
+		v, err = keyring.Get(k.svc(), k.account(profile))
 		return err
 	})
 	if errors.Is(err, keyring.ErrNotFound) {
@@ -78,11 +92,11 @@ func (k Keyring) Get(profile string) ([]byte, error) {
 }
 
 func (k Keyring) Set(profile string, data []byte) error {
-	return withTimeout(func() error { return keyring.Set(k.svc(), profile, string(data)) })
+	return withTimeout(func() error { return keyring.Set(k.svc(), k.account(profile), string(data)) })
 }
 
 func (k Keyring) Delete(profile string) error {
-	err := withTimeout(func() error { return keyring.Delete(k.svc(), profile) })
+	err := withTimeout(func() error { return keyring.Delete(k.svc(), k.account(profile)) })
 	if errors.Is(err, keyring.ErrNotFound) {
 		return nil
 	}
@@ -259,8 +273,9 @@ func (f *Fallback) Set(profile string, data []byte) error {
 			return nil
 		}
 		// A keychain that answers reads but refuses writes (sandbox) must not make us start a second copy
-		// of the login in the file: the two copies would rotate the same refresh token and burn the grant.
-		if _, getErr := f.Keychain.Get(profile); getErr == nil || errors.Is(getErr, ErrNotFound) {
+		// of a login it already holds: the two copies would rotate the same refresh token and burn the
+		// grant. When it holds nothing for this profile, the file is a safe home for a fresh login.
+		if _, getErr := f.Keychain.Get(profile); getErr == nil {
 			return fmt.Errorf("%w: keychain refused the write (%v)", ErrNotWritable, err)
 		}
 		f.degrade(err)
@@ -293,16 +308,32 @@ func (f *Fallback) Name() string {
 }
 
 // Select picks the store: explicit kind (flag or IUGU_CREDENTIALS_STORE) or keychain with a file
-// fallback when the keychain is unavailable. `warn` receives the reason of a fallback.
+// fallback when the keychain is unavailable. `warn` receives the reason of a fallback. Keychain entries
+// of a non-default config dir are namespaced by it (see Keyring).
 func Select(kind, configDir string, warn func(string)) Store {
 	file := &FileStore{Path: filepath.Join(configDir, "credentials.json")}
+	kc := Keyring{Namespace: Namespace(configDir)}
 	switch strings.ToLower(kind) {
 	case "file":
 		return file
 	case "ephemeral", "memory":
 		return &Memory{}
 	case "keychain", "keyring":
-		return Keyring{}
+		return kc
 	}
-	return &Fallback{Keychain: Keyring{}, File: file, Warn: warn}
+	return &Fallback{Keychain: kc, File: file, Warn: warn}
+}
+
+// Namespace derives the keychain namespace of a config dir: empty for the default ~/.config/iugu, a
+// short hash of the absolute path otherwise.
+func Namespace(configDir string) string {
+	abs, err := filepath.Abs(configDir)
+	if err != nil {
+		abs = configDir
+	}
+	if home, err := os.UserHomeDir(); err == nil && abs == filepath.Join(home, ".config", "iugu") {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:4])
 }

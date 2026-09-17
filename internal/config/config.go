@@ -72,7 +72,7 @@ func DeviceName(profile string) string {
 		host = "unknown-host"
 	}
 	where := profile
-	if dir := os.Getenv(EnvConfigDir); dir != "" {
+	if dir := os.Getenv(EnvConfigDir); dir != "" && !isDefaultDir(dir) {
 		if cwd, err := os.Getwd(); err == nil {
 			if rel, err := filepath.Rel(cwd, dir); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
 				where = filepath.ToSlash(rel) + " in " + filepath.Base(cwd)
@@ -239,4 +239,13 @@ func (p *Project) Save(path string) error {
 	}
 	p.Path = path
 	return nil
+}
+
+func isDefaultDir(dir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(dir)
+	return err == nil && abs == filepath.Join(home, ".config", "iugu")
 }

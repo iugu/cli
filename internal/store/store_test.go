@@ -175,6 +175,30 @@ func TestFallbackDoesNotSplitBrainWhenKeychainIsReadOnly(t *testing.T) {
 	if fb.Name() != "keychain" {
 		t.Fatalf("must not degrade to file: %s", fb.Name())
 	}
+	// a keychain that is readable but EMPTY for the profile (no login keychain in $HOME, CI) is a safe
+	// place to fall over from: a fresh login goes to the file with a warning
+	var warned string
+	fresh := &Fallback{Keychain: readableNotWritable{&Memory{}}, File: &FileStore{Path: filepath.Join(t.TempDir(), "c.json")}, Warn: func(m string) { warned = m }}
+	if err := fresh.Set("default", []byte(`{"rt":"first"}`)); err != nil {
+		t.Fatalf("fresh login should fall back to the file: %v", err)
+	}
+	if fresh.Name() != "file" || warned == "" {
+		t.Fatalf("expected file store with a warning, got %s %q", fresh.Name(), warned)
+	}
+}
+
+func TestNamespaceIsEmptyForTheDefaultDirAndStableOtherwise(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	if Namespace(filepath.Join(home, ".config", "iugu")) != "" {
+		t.Fatal("default dir must not be namespaced (existing keychain entries keep working)")
+	}
+	a, b := Namespace("/tmp/project/.iugu"), Namespace("/tmp/other/.iugu")
+	if a == "" || len(a) != 8 || a == b || a != Namespace("/tmp/project/.iugu") {
+		t.Fatalf("namespace: %q %q", a, b)
+	}
+	if (Keyring{Namespace: a}).account("default") != "default@"+a || (Keyring{}).account("default") != "default" {
+		t.Fatal("account naming")
+	}
 }
 
 func TestFileStoreReportsNotWritable(t *testing.T) {
