@@ -4,6 +4,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +44,47 @@ type Profile struct {
 type File struct {
 	DefaultProfile string             `json:"default_profile"`
 	Profiles       map[string]Profile `json:"profiles"`
+	// DeviceID identifies this credential holder (config dir) to the authorization server: consents from
+	// the same holder merge into one grant, other holders (another profile dir, a project-local .iugu/)
+	// get their own, and revoking one never touches another. Random, generated once, never secret.
+	DeviceID string `json:"device_id,omitempty"`
+}
+
+// EnsureDeviceID returns the holder id, generating and saving it on first use.
+func (f *File) EnsureDeviceID() (string, error) {
+	if f.DeviceID != "" {
+		return f.DeviceID, nil
+	}
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	f.DeviceID = "cli_" + hex.EncodeToString(b)
+	return f.DeviceID, f.Save()
+}
+
+// DeviceName is the label the human sees next to a grant: host and, when not the default, the profile
+// or the project-local config dir.
+func DeviceName(profile string) string {
+	host, _ := os.Hostname()
+	host = strings.TrimSuffix(host, ".local")
+	if host == "" {
+		host = "unknown-host"
+	}
+	where := profile
+	if dir := os.Getenv(EnvConfigDir); dir != "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if rel, err := filepath.Rel(cwd, dir); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				where = filepath.ToSlash(rel) + " in " + filepath.Base(cwd)
+			} else {
+				where = dir
+			}
+		}
+	}
+	if where == "" || where == "default" {
+		return "iugu CLI on " + host
+	}
+	return "iugu CLI on " + host + " (" + where + ")"
 }
 
 // Dir returns the config directory, creating it with 0700 when missing.

@@ -98,7 +98,8 @@ func (rt *Runtime) browserLogin(ctx context.Context, oauth *auth.Client, scopes,
 		rt.Printer.Line("cannot bind a loopback port (%v); falling back to the device flow", err)
 		return rt.deviceInteractive(ctx, oauth, scopes, resource)
 	}
-	url := oauth.AuthorizeURL(auth.AuthorizationRequest{Scope: scopes, Resource: resource, Workspace: workspace}, lb.RedirectURI(), state, pkce)
+	deviceID, deviceName := rt.deviceIdentity()
+	url := oauth.AuthorizeURL(auth.AuthorizationRequest{Scope: scopes, Resource: resource, Workspace: workspace, DeviceID: deviceID, DeviceName: deviceName}, lb.RedirectURI(), state, pkce)
 	if noBrowser || !openBrowser(url) {
 		rt.Printer.Line("Open this URL in your browser to log in:\n\n  %s\n", url)
 		if rt.Printer.JSON {
@@ -121,7 +122,8 @@ func (rt *Runtime) browserLogin(ctx context.Context, oauth *auth.Client, scopes,
 }
 
 func (rt *Runtime) deviceInteractive(ctx context.Context, oauth *auth.Client, scopes, resource string) error {
-	da, err := oauth.StartDevice(ctx, scopes, resource)
+	deviceID, deviceName := rt.deviceIdentity()
+	da, err := oauth.StartDevice(ctx, scopes, resource, deviceID, deviceName)
 	if err != nil {
 		return err
 	}
@@ -136,7 +138,8 @@ func (rt *Runtime) deviceInteractive(ctx context.Context, oauth *auth.Client, sc
 
 // deviceHandoff never blocks: it stores the pending device code and prints what the agent must show.
 func (rt *Runtime) deviceHandoff(ctx context.Context, oauth *auth.Client, scopes, resource string) error {
-	da, err := oauth.StartDevice(ctx, scopes, resource)
+	deviceID, deviceName := rt.deviceIdentity()
+	da, err := oauth.StartDevice(ctx, scopes, resource, deviceID, deviceName)
 	if err != nil {
 		return err
 	}
@@ -207,8 +210,7 @@ func (rt *Runtime) finishLogin(ts *auth.TokenSet, issuer, resource string) error
 	if err != nil {
 		return err
 	}
-	host, _ := os.Hostname()
-	session.Device = host
+	_, session.Device = rt.deviceIdentity()
 	if err := session.Save(rt.store, rt.profileName); err != nil {
 		return fmt.Errorf("storing the login: %w", err)
 	}
@@ -234,6 +236,7 @@ func statusPayload(s *auth.Session, storeName string, loggedIn bool) map[string]
 	return map[string]any{
 		"logged_in": loggedIn, "sub": s.Sub, "email": s.Email, "name": s.Name, "client_id": s.ClientID, "issuer": s.Issuer, "api": s.API,
 		"scopes": s.Scopes, "workspaces": s.Workspaces, "grant_id": s.GrantID, "store": storeName, "expires_at": s.ExpiresAt, "logged_in_at": s.LoggedInAt,
+		"device": s.Device,
 	}
 }
 
@@ -276,4 +279,19 @@ func ignoreProjectLocalConfigDir() {
 		return
 	}
 	ensureGitignore(cwd, filepath.ToSlash(rel)+"/")
+}
+
+// deviceIdentity is what the AS keys the grant by (one grant per stored login) and the label humans see.
+// A missing or unwritable config dir degrades to "no device" (legacy shared grant) rather than failing the login.
+func (rt *Runtime) deviceIdentity() (id, name string) {
+	name = config.DeviceName(rt.profileName)
+	if rt.configFile == nil {
+		return "", name
+	}
+	id, err := rt.configFile.EnsureDeviceID()
+	if err != nil {
+		rt.Printer.Line("warning: could not save a device id in the config dir (%v); this login will share the client's default grant", err)
+		return "", name
+	}
+	return id, name
 }

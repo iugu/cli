@@ -13,9 +13,11 @@ import (
 
 // AuthorizationRequest builds the /authorize URL for the code flow.
 type AuthorizationRequest struct {
-	Scope     string
-	Resource  string
-	Workspace string // optional: pre-selects a workspace on the consent page (`iugu login --workspace`)
+	Scope      string
+	Resource   string
+	Workspace  string // optional: pre-selects a workspace on the consent page (`iugu login --workspace`)
+	DeviceID   string // credential holder id: one grant per holder on the AS
+	DeviceName string // label shown on the consent page and the Connected agents list
 }
 
 // Loopback is a one-shot HTTP listener on 127.0.0.1 for the redirect (RFC 8252 §7.3).
@@ -104,6 +106,12 @@ func (c *Client) AuthorizeURL(req AuthorizationRequest, redirectURI, state strin
 	}
 	if req.Workspace != "" {
 		q.Set("workspace", req.Workspace)
+	}
+	if req.DeviceID != "" {
+		q.Set("device_id", req.DeviceID)
+	}
+	if req.DeviceName != "" {
+		q.Set("device_name", req.DeviceName)
 	}
 	return c.Metadata.AuthorizationEndpoint + "?" + q.Encode()
 }

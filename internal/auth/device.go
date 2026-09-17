@@ -21,12 +21,19 @@ type DeviceAuthorization struct {
 	ExpiresAt               time.Time `json:"expires_at"`
 }
 
-// StartDevice requests a device code.
-func (c *Client) StartDevice(ctx context.Context, scope, resource string) (*DeviceAuthorization, error) {
+// StartDevice requests a device code; the optional device identity keys the resulting grant to this holder.
+func (c *Client) StartDevice(ctx context.Context, scope, resource string, device ...string) (*DeviceAuthorization, error) {
 	if c.Metadata.DeviceAuthorizationEndpoint == "" {
 		return nil, errors.New("authorization server has no device authorization endpoint")
 	}
-	body, status, err := c.post(ctx, c.Metadata.DeviceAuthorizationEndpoint, url.Values{"client_id": {c.ClientID}, "scope": {scope}, "resource": {resource}})
+	form := url.Values{"client_id": {c.ClientID}, "scope": {scope}, "resource": {resource}}
+	if len(device) > 0 && device[0] != "" {
+		form.Set("device_id", device[0])
+	}
+	if len(device) > 1 && device[1] != "" {
+		form.Set("device_name", device[1])
+	}
+	body, status, err := c.post(ctx, c.Metadata.DeviceAuthorizationEndpoint, form)
 	if err != nil {
 		return nil, err
 	}

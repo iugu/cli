@@ -22,7 +22,8 @@ type fakeConsole struct {
 	statusCode   atomic.Int32 // change set status progression
 	secretsHit   atomic.Int32
 	devicePoll   atomic.Int32
-	revokedGrant bool // when true every API call answers 401 invalid_token
+	revokedGrant bool                      // when true every API call answers 401 invalid_token
+	lastDevice   struct{ id, name string } // device identity seen on /device_authorization
 }
 
 func jwtWith(claims map[string]any) string {
@@ -49,6 +50,8 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 			"device_authorization_endpoint": f.srv.URL + "/device_authorization", "revocation_endpoint": f.srv.URL + "/revoke", "code_challenge_methods_supported": []string{"S256"}})
 	})
 	mux.HandleFunc("/device_authorization", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.lastDevice.id, f.lastDevice.name = r.Form.Get("device_id"), r.Form.Get("device_name")
 		writeJSON(w, 200, map[string]any{"device_code": "dc1", "user_code": "WDJB-MJHT", "verification_uri": f.srv.URL + "/device", "verification_uri_complete": f.srv.URL + "/device?user_code=WDJB-MJHT", "expires_in": 600, "interval": 0})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +196,10 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 	_ = json.Unmarshal([]byte(out), &handoff)
 	handle := handoff["handle"].(string)
 
+	if !strings.HasPrefix(f.lastDevice.id, "cli_") || len(f.lastDevice.id) != 36 || !strings.HasPrefix(f.lastDevice.name, "iugu CLI on ") {
+		t.Fatalf("device identity not sent on /device_authorization: %+v", f.lastDevice)
+	}
+	firstDevice := f.lastDevice.id
 	// first completion: still pending (fake answers pending once)
 	code, out, _ = run(t, dir, f.srv.URL, "login", "--complete", handle, "--json")
 	if code != 0 || !strings.Contains(out, "authorization_pending") {
@@ -210,6 +217,15 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 	code, out, _ = run(t, dir, f.srv.URL, "me", "--json")
 	if code != 0 || !strings.Contains(out, "Dev Workspace") {
 		t.Fatalf("me: %d %s", code, out)
+	}
+	// the device id is generated once per config dir and stays stable across logins; auth status shows the label
+	code, out, _ = run(t, dir, f.srv.URL, "login", "--json", "--agent", "yes")
+	if code != 0 || f.lastDevice.id != firstDevice {
+		t.Fatalf("device id must be stable per config dir: %q vs %q (%d %s)", f.lastDevice.id, firstDevice, code, out)
+	}
+	code, out, _ = run(t, dir, f.srv.URL, "auth", "status", "--offline", "--json")
+	if code != 0 || !strings.Contains(out, `"device": "iugu CLI on `) {
+		t.Fatalf("auth status should show the device label: %d %s", code, out)
 	}
 	// auth status verifies the grant online; a revoked grant flips logged_in even though the store has a login
 	code, out, _ = run(t, dir, f.srv.URL, "auth", "status", "--json")
