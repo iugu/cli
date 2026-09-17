@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -28,6 +29,24 @@ type Store interface {
 
 const service = "iugu-cli"
 
+// KeyringTimeout bounds every keychain call: on macOS `security` can block forever waiting for a GUI
+// prompt (or when $HOME has no login keychain); we would rather fail and fall back to the file store.
+var KeyringTimeout = 10 * time.Second
+
+// ErrKeyringTimeout is returned when the OS keychain does not answer within KeyringTimeout.
+var ErrKeyringTimeout = errors.New("keychain did not answer (locked or waiting for a prompt?)")
+
+func withTimeout(fn func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(KeyringTimeout):
+		return ErrKeyringTimeout
+	}
+}
+
 // Keyring uses the OS keychain (macOS Keychain, Secret Service, Windows Credential Manager).
 type Keyring struct{ Service string }
 
@@ -39,7 +58,11 @@ func (k Keyring) svc() string {
 }
 
 func (k Keyring) Get(profile string) ([]byte, error) {
-	v, err := keyring.Get(k.svc(), profile)
+	var v string
+	err := withTimeout(func() (err error) {
+		v, err = keyring.Get(k.svc(), profile)
+		return err
+	})
 	if errors.Is(err, keyring.ErrNotFound) {
 		return nil, ErrNotFound
 	}
@@ -50,11 +73,11 @@ func (k Keyring) Get(profile string) ([]byte, error) {
 }
 
 func (k Keyring) Set(profile string, data []byte) error {
-	return keyring.Set(k.svc(), profile, string(data))
+	return withTimeout(func() error { return keyring.Set(k.svc(), profile, string(data)) })
 }
 
 func (k Keyring) Delete(profile string) error {
-	err := keyring.Delete(k.svc(), profile)
+	err := withTimeout(func() error { return keyring.Delete(k.svc(), profile) })
 	if errors.Is(err, keyring.ErrNotFound) {
 		return nil
 	}
@@ -168,8 +191,87 @@ func (m *Memory) Delete(profile string) error {
 
 func (*Memory) Name() string { return "ephemeral" }
 
+// Fallback tries the keychain first and degrades to the file store when the keychain fails: headless
+// Linux, containers, a macOS $HOME without a login keychain, a prompt nobody answers. Reads consult
+// both places so a login saved during a degraded run is still found once the keychain is back.
+type Fallback struct {
+	Keychain Store
+	File     *FileStore
+	Warn     func(string)
+	mu       sync.Mutex
+	degraded bool
+	fromFile bool // the last read was served by the file (login saved during a degraded run)
+}
+
+func (f *Fallback) isDegraded() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.degraded
+}
+
+func (f *Fallback) degrade(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.degraded && f.Warn != nil {
+		f.Warn(fmt.Sprintf("keychain unavailable (%v); storing the login in %s (0600)", err, f.File.Path))
+	}
+	f.degraded = true
+}
+
+func (f *Fallback) Get(profile string) ([]byte, error) {
+	if !f.isDegraded() {
+		v, err := f.Keychain.Get(profile)
+		if err == nil {
+			return v, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			f.degrade(err)
+		}
+	}
+	v, err := f.File.Get(profile)
+	if err == nil {
+		f.mu.Lock()
+		f.fromFile = true
+		f.mu.Unlock()
+	}
+	return v, err
+}
+
+func (f *Fallback) Set(profile string, data []byte) error {
+	f.mu.Lock()
+	stayInFile := f.fromFile // a login that lives in the file stays there (no 10 s keychain stall on every refresh)
+	f.mu.Unlock()
+	if !stayInFile && !f.isDegraded() {
+		err := f.Keychain.Set(profile, data)
+		if err == nil {
+			_ = f.File.Delete(profile) // never keep two copies
+			return nil
+		}
+		f.degrade(err)
+	}
+	return f.File.Set(profile, data)
+}
+
+func (f *Fallback) Delete(profile string) error {
+	if !f.isDegraded() {
+		if err := f.Keychain.Delete(profile); err != nil {
+			f.degrade(err)
+		}
+	}
+	return f.File.Delete(profile)
+}
+
+func (f *Fallback) Name() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.degraded || f.fromFile {
+		return "file"
+	}
+	return "keychain"
+}
+
 // Select picks the store: explicit kind (flag or IUGU_CREDENTIALS_STORE) or keychain with a file
-// fallback when the keychain is unavailable (headless Linux, containers). `warn` receives the reason.
+// fallback when the keychain is unavailable. `warn` receives the reason of a fallback.
 func Select(kind, configDir string, warn func(string)) Store {
 	file := &FileStore{Path: filepath.Join(configDir, "credentials.json")}
 	switch strings.ToLower(kind) {
@@ -180,12 +282,5 @@ func Select(kind, configDir string, warn func(string)) Store {
 	case "keychain", "keyring":
 		return Keyring{}
 	}
-	k := Keyring{}
-	if _, err := k.Get("__probe__"); err != nil && !errors.Is(err, ErrNotFound) {
-		if warn != nil {
-			warn(fmt.Sprintf("keychain unavailable (%v); storing the login in %s (0600)", err, file.Path))
-		}
-		return file
-	}
-	return k
+	return &Fallback{Keychain: Keyring{}, File: file, Warn: warn}
 }

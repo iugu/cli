@@ -151,7 +151,34 @@ Example: iugu changeset create --workspace W --op 'oauth.update:{"app_id":"A","c
 		rt.Printer.Result(r.Body, func(w io.Writer) { fmt.Fprintln(w, "Withdrawn") })
 		return nil
 	}}
-	cmd.AddCommand(create, show, submitCmd, wait, secrets, withdraw)
+	var listStatus string
+	list := &cobra.Command{Use: "list", Short: "List change sets of the consented workspaces (all statuses; filter with --status)", RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := rt.apiClient(cmd.Context())
+		if err != nil {
+			return err
+		}
+		q := url.Values{}
+		if listStatus == "" {
+			listStatus = "draft,pending_approval,approved,applied,rejected,expired,failed"
+		}
+		q.Set("status", listStatus)
+		items, err := client.ListAll(cmd.Context(), "/v1/approvals", q, 500)
+		if err != nil {
+			return err
+		}
+		rt.Printer.Result(map[string]any{"data": items}, func(w io.Writer) {
+			rows := [][]string{}
+			for _, it := range items {
+				m, _ := it.(map[string]any)
+				rows = append(rows, []string{api.Str(m, "id"), api.Str(m, "status"), api.Str(m, "workspace", "name"), short(summarize(m), 70), api.Str(m, "created_at")})
+			}
+			output.Table(w, []string{"ID", "STATUS", "WORKSPACE", "CHANGES", "CREATED"}, rows)
+		})
+		return nil
+	}}
+	list.Flags().StringVar(&listStatus, "status", "", "comma-separated statuses: draft, pending_approval, approved, applied, rejected, expired, failed")
+	cmd.AddCommand(create, list, show, submitCmd, wait, secrets, withdraw)
+
 	return cmd
 }
 

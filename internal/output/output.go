@@ -4,6 +4,7 @@
 package output
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,19 +46,14 @@ func New(jsonMode bool) *Printer {
 
 // Result prints the final value of a command: JSON when asked, otherwise via the human renderer.
 func (p *Printer) Result(v any, human func(w io.Writer)) {
-	if p.JSON {
+	if p.JSON || human == nil {
 		enc := json.NewEncoder(p.Out)
 		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false) // URLs with & must survive copy/paste by agents
 		_ = enc.Encode(v)
 		return
 	}
-	if human != nil {
-		human(p.Out)
-		return
-	}
-	enc := json.NewEncoder(p.Out)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+	human(p.Out)
 }
 
 // Line is a diagnostic line for humans (stderr, never in JSON mode's stdout).
@@ -80,6 +76,9 @@ func Table(w io.Writer, header []string, rows [][]string) {
 
 // NDJSON writes one JSON object per line (for `wait` streams).
 func NDJSON(w io.Writer, v any) {
-	data, _ := json.Marshal(v)
-	fmt.Fprintln(w, string(data))
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+	_, _ = w.Write(buf.Bytes())
 }

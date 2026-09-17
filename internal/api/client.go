@@ -178,7 +178,7 @@ func (c *Client) ListAll(ctx context.Context, path string, query url.Values, max
 	if query == nil {
 		query = url.Values{}
 	}
-	var items []any
+	items := []any{} // never nil: `--json` consumers expect an array
 	for {
 		r, err := c.Get(ctx, path, query)
 		if err != nil {
