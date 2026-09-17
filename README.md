@@ -8,7 +8,8 @@ credentials without ever seeing them in a chat window, test authorization, publi
 The CLI talks to the **Lifecycle API** (`https://api.console.iugu.com/v1`, OpenAPI in Console's
 `docs/public/api-v1.yaml`) with OAuth 2.1 tokens issued by Console's authorization server
 (`https://identity.iugu.com`). It does not embed an MCP server: `iugu agent setup` points each harness at
-the remote endpoint `https://mcp.console.iugu.com/mcp`.
+the remote endpoint `https://mcp.console.iugu.com/mcp`, which exposes the same operations as MCP tools
+(clients connect through OAuth — Claude Code, Codex, Cursor, VS Code, ChatGPT — no CLI needed there).
 
 ## Install
 
