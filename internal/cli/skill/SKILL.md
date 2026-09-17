@@ -37,6 +37,15 @@ Secrets are delivered once, only to this CLI, within one hour of approval. Use `
 
 If the credential was requested through the **MCP server** (not this CLI), the secret still lands here: `iugu changeset secrets <change_set_id> --write-env .env.local` works for the same developer's logged-in CLI — the model never sees the value.
 
+## Actions your app publishes for agents and Workflow {#actions}
+
+An app can publish **actions** (and triggers) that Workflow and **Iugu for AI** (the remote MCP server) call on a person's behalf: serve `GET {service_api_url}/actions` with `spec: iugu.actions/v1` — per action `name`, `title`, `label`, `description`, `url` (same origin as the service URL), `method`, `parameters[]` (`direction` ParamInput/ParamOutput, `type`, `source` query|path|body) and `authorization: { action: "<app_tag>:<action>", acr: informations|config|transfers }` — then opt in with `iugu app entitlements set actions_provider`. Console accepts only actions whose `authorization.action` is one of the app's implemented actions.
+
+- `iugu app actions list --json` (`--refresh` after changing the document): what Console accepted (`actions[].tool_name` = `<tag>__<name>`, the schemas it derived) and every `problems[]` entry (path + reason) that excluded something. Fix the manifest until `problems` is empty.
+- `iugu app actions call <name> --input '{…}' --json` (or `--arg k=v`): performs the action against your endpoint **as the app itself** (client_credentials token, `Workspace` header), the way a consumer would — path/query/body per the manifest. Exit 0 on 2xx; the payload has `request` and `response`. A `401 insufficient_user_authentication` with `step_up_human: true` means your endpoint enforces the `acr` for humans — correct: app tokens carry no `acr`; through Iugu for AI the person confirms that exact call on a Console page and the call is made with their identity. `--token <jwt>` calls with another token (e.g. a user token from your own login) to exercise those rules.
+
+Your endpoint must verify the bearer token (JWKS, `iss`, `aud = Iugu.Platform.<client_id>`, `typ at+JWT`) and call `/verify` with **both** `token.sub` and `"app:" + token.client_id` for `authorization.action` (AND semantics): a consumer can never do what its human cannot, nor what the workspace did not grant it. Bridge tokens have no session — never rely on `/userinfo` for them.
+
 ## Sandboxes and harness quirks {#sandboxes}
 
 - **No network** (Codex `workspace-write` default, some CI): every `iugu` call fails with a connection error and a hint. Ask the human to enable outbound network for the sandbox (Codex: `sandbox_workspace_write.network_access = true`) or to run the command outside it.

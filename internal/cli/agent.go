@@ -145,7 +145,7 @@ func (rt *Runtime) docsCommand() *cobra.Command {
 	var llms bool
 	cmd := &cobra.Command{
 		Use:   "docs [topic]",
-		Short: "Documentation for agents and humans (topics: golden-path, tiers, secrets, integration, sandboxes, exit-codes; --llms prints llms.txt)",
+		Short: "Documentation for agents and humans (topics: golden-path, tiers, secrets, integration, actions, sandboxes, exit-codes; --llms prints llms.txt)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if llms {
 				fmt.Fprint(rt.Printer.Out, llmsText)
@@ -159,7 +159,7 @@ func (rt *Runtime) docsCommand() *cobra.Command {
 			if topic != "all" {
 				text = section(skillMarkdown, topic)
 				if text == "" {
-					return &output.Exit{Code: output.ExitUsage, Message: "unknown topic; try golden-path, tiers, secrets, integration, sandboxes, exit-codes"}
+					return &output.Exit{Code: output.ExitUsage, Message: "unknown topic; try golden-path, tiers, secrets, integration, actions, sandboxes, exit-codes"}
 				}
 			}
 			fmt.Fprint(rt.Printer.Out, text)

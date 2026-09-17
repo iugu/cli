@@ -94,6 +94,7 @@ logout · auth status|token · me · workspace list|use <id>
 app init --name … --workspace <id> [--wait] · app list|get|update|discard|publish [--billable]
 app permissions get|set · app oauth set · app credentials list|create|rotate|revoke
 app certificates list|add|revoke · app ip-whitelist set|test <ip> · app entitlements set
+app actions list [--refresh] · app actions call <name> --input '{…}' [--arg k=v] [--token <jwt>]   (the app's iugu.actions/v1 manifest as Console reads it; test an action as the app itself)
 app agreements list|publish · app images list|upload|highlight|remove · app deploy-tokens list|create|revoke
 app install|uninstall|resync --workspace <id> · app token [--credential <id>] [--scope …] · app env --format dotenv|fly|netlify|vercel|json
 changeset create --op <type>:<json>… [--submit] [--wait] · changeset list|show|submit|wait|secrets|withdraw <id>
