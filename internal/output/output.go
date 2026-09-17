@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/itchyny/gojq"
 )
 
 const (
@@ -34,6 +36,7 @@ func (e *Exit) Error() string { return e.Message }
 // Printer knows whether the caller wants JSON.
 type Printer struct {
 	JSON    bool
+	JQ      string // optional jq expression applied to the JSON result (implies JSON)
 	Out     io.Writer
 	Err     io.Writer
 	Quiet   bool
@@ -46,6 +49,12 @@ func New(jsonMode bool) *Printer {
 
 // Result prints the final value of a command: JSON when asked, otherwise via the human renderer.
 func (p *Printer) Result(v any, human func(w io.Writer)) {
+	if p.JQ != "" {
+		if err := p.jq(v); err != nil {
+			fmt.Fprintf(p.Err, "jq: %v\n", err)
+		}
+		return
+	}
 	if p.JSON || human == nil {
 		enc := json.NewEncoder(p.Out)
 		enc.SetIndent("", "  ")
@@ -81,4 +90,38 @@ func NDJSON(w io.Writer, v any) {
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// jq applies the expression to v (round-tripped through JSON so structs behave like plain objects) and
+// prints each output: raw strings, JSON for everything else — the `gh --jq` convention.
+func (p *Printer) jq(v any) error {
+	query, err := gojq.Parse(p.JQ)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var input any
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return err
+	}
+	iter := query.Run(input)
+	for {
+		out, ok := iter.Next()
+		if !ok {
+			return nil
+		}
+		if err, isErr := out.(error); isErr {
+			return err
+		}
+		if s, isStr := out.(string); isStr {
+			fmt.Fprintln(p.Out, s)
+			continue
+		}
+		enc := json.NewEncoder(p.Out)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(out)
+	}
 }

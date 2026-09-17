@@ -1,0 +1,15 @@
+{
+  "name": "@iugu/cli",
+  "version": "0.0.0-development",
+  "description": "Platform 2 Console CLI (iugu) — npm shim that downloads the signed binary for your platform",
+  "license": "MIT",
+  "repository": "github:iugu-private/platform2-cli",
+  "homepage": "https://developer.iugu.com/console/cli",
+  "bin": { "iugu": "bin/iugu.js" },
+  "files": ["bin/", "install.js", "README.md"],
+  "scripts": { "postinstall": "node install.js" },
+  "engines": { "node": ">=18" },
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"],
+  "keywords": ["iugu", "cli", "platform2", "console", "agents", "mcp"]
+}

@@ -7,7 +7,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -22,8 +21,24 @@ import (
 	"github.com/iugu-private/platform2-cli/internal/store"
 )
 
-// Version is set by the build (goreleaser -X).
-var Version = "dev"
+// Version, Commit and Date are set by the build (goreleaser -X).
+var (
+	Version = "dev"
+	Commit  = ""
+	Date    = ""
+)
+
+func versionString() string {
+	v := Version
+	if Commit != "" {
+		v += " (" + Commit
+		if Date != "" {
+			v += ", " + Date
+		}
+		v += ")"
+	}
+	return v
+}
 
 // Runtime is everything a command needs; built once per invocation.
 type Runtime struct {
@@ -31,6 +46,7 @@ type Runtime struct {
 	HTTP    *http.Client
 
 	jsonFlag       bool
+	jqFlag         string
 	apiFlag        string
 	profileFlag    string
 	storeFlag      string
@@ -116,11 +132,12 @@ func (rt *Runtime) rootCommand() *cobra.Command {
 		Use:           "iugu",
 		Short:         "iugu Console for developers and their AI agents",
 		Long:          "iugu — create, configure, test and publish Platform 2 apps from a terminal or an AI coding session.\nSensitive changes (credentials, certificates, permissions, publishing) become approvals a human completes in the browser.",
-		Version:       Version,
+		Version:       versionString(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			rt.Printer = output.New(rt.jsonFlag)
+			rt.Printer = output.New(rt.jsonFlag || rt.jqFlag != "")
+			rt.Printer.JQ = rt.jqFlag
 			rt.Printer.Quiet = rt.quiet
 			cfg, err := config.Load()
 			if err != nil {
@@ -143,6 +160,7 @@ func (rt *Runtime) rootCommand() *cobra.Command {
 	}
 	pf := root.PersistentFlags()
 	pf.BoolVar(&rt.jsonFlag, "json", false, "machine-readable JSON on stdout (agents: always use this)")
+	pf.StringVar(&rt.jqFlag, "jq", "", "filter the JSON result with a jq expression (implies --json; strings print raw)")
 	pf.StringVar(&rt.apiFlag, "api", "", "Lifecycle API base URL (default "+config.DefaultAPI+"; env IUGU_API)")
 	pf.StringVar(&rt.profileFlag, "profile", "", "named login profile (env IUGU_PROFILE)")
 	pf.StringVar(&rt.storeFlag, "credentials-store", "", "keychain | file | ephemeral (default: keychain, file fallback; env IUGU_CREDENTIALS_STORE)")
@@ -284,18 +302,9 @@ func (rt *Runtime) mutating() *api.Options {
 	return &api.Options{IdempotencyKey: rt.idempotencyKey}
 }
 
-func fmtTime(t time.Time) string {
-	if t.IsZero() {
-		return "-"
-	}
-	return t.Local().Format("2006-01-02 15:04")
-}
-
 func short(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
 	return s[:n-1] + "…"
 }
-
-var _ = fmt.Sprintf
