@@ -124,7 +124,7 @@ Example: iugu changeset create --op 'oauth.update:{"callbacks":["https://x/cb"]}
 		return rt.deliverOutcome(cmd.Context(), client, final, opts)
 	}}
 	addApprovalFlags(wait.Flags(), &opts)
-	secrets := &cobra.Command{Use: "secrets <id>", Short: "Retrieve the secrets of an applied change set — once, within ten minutes", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	secrets := &cobra.Command{Use: "secrets <id>", Short: "Retrieve the secrets of an applied change set — once, within one hour", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := rt.apiClient(cmd.Context())
 		if err != nil {
 			return err

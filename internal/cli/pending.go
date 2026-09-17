@@ -147,7 +147,7 @@ func (rt *Runtime) deliverOutcome(ctx context.Context, client *api.Client, cs ma
 		result["secrets"] = delivered
 	} else if available {
 		result["secrets"] = map[string]any{"available": true, "expires_at": api.Str(cs, "secrets", "expires_at"),
-			"next_step": fmt.Sprintf("iugu changeset secrets %s --write-env .env.local   (once, within 10 minutes)", id)}
+			"next_step": fmt.Sprintf("iugu changeset secrets %s --write-env .env.local   (once, within one hour)", id)}
 	}
 	rt.Printer.Result(result, func(w io.Writer) {
 		fmt.Fprintf(w, "Applied: %s\n", summarize(cs))

@@ -68,7 +68,7 @@ ephemeral` keeps it in memory only. `iugu auth status --json` always exits 0 and
 - Tier 0 operations execute immediately; Tier 1 (credentials, OAuth settings, certificates, IP whitelist,
   publish, third-party installs, discard, deploy tokens, GIA writes) become a **change set** that a human
   approves in Console. Batch them: `iugu changeset create --op … --op … --submit --wait`.
-- Secrets are delivered once, to the requesting CLI, within ten minutes of approval, through
+- Secrets are delivered once, to the requesting CLI, within one hour of approval, through
   `--write-env <file>` (0600, `.gitignore`d), `--exec "<cmd> {secret}"` (in-process substitution, no
   shell, redacted in output) or `--show-secret`. `iugu app credentials list` shows prefixes only.
 - Project context lives in `iugu.toml` (app id, name, tag, publisher workspace, development

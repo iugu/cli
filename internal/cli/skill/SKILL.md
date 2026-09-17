@@ -11,7 +11,7 @@ Always call the CLI with `--json`. Read `error.code` and the exit code: `0` ok �
 
 1. `iugu auth status --json` — if `logged_in` is false: `iugu login --json` prints `verification_uri_complete` + `user_code`; show them to the human, then run the printed `next_step` (`iugu login --complete <handle> --wait`).
 2. `iugu me --json` — pick the development workspace (`workspaces[].id`); `iugu workspace use <id>`.
-3. `iugu app init --name "<App>" --workspace <id> --json` — creates the app (private, draft), installs it in the dev workspace, requests a **workspace-restricted credential** (Tier 1) and writes `iugu.toml`. Exit 5 is normal: give `approval.url` to the human, then `iugu changeset wait <id> --write-env .env.local --json` (it also replaces `credential = 'pending:…'` in `iugu.toml`). Never ask the human for the secret; it lands in `.env.local` (0600). If your session ends before the human approves, run the same `wait` when they come back — secrets stay collectable for 10 minutes after approval; after that, request a new credential.
+3. `iugu app init --name "<App>" --workspace <id> --json` — creates the app (private, draft), installs it in the dev workspace, requests a **workspace-restricted credential** (Tier 1) and writes `iugu.toml`. Exit 5 is normal: give `approval.url` to the human, then `iugu changeset wait <id> --write-env .env.local --json` (it also replaces `credential = 'pending:…'` in `iugu.toml`). Never ask the human for the secret; it lands in `.env.local` (0600). If your session ends before the human approves, run the same `wait` when they come back — secrets stay collectable for one hour after approval; after that, request a new credential.
 4. `iugu app permissions set --implemented a,b --consumed tag:action --grant-scopes informations --json` (Tier 0). Find consumable actions with `iugu catalog actions --q <text> --json`.
 5. Test authorization without real accounts: `iugu test-principal create --name qa --json` → `iugu verify --principal temp:… --action <tag>:<action> --json`. `iugu app token` mints a short-lived app token for `/verify`, `/userinfo`; use it through a sink so it never lands in the transcript: `iugu app token --exec "curl -sS -H 'Authorization: Bearer {token}' https://…/userinfo"` or `--write-env .env.local`.
 6. Deploy the code anywhere (Fly, Netlify, Vercel…); `iugu app env --format fly` prints the non-secret environment; pipe secrets with `iugu changeset secrets <id> --exec "fly secrets set IUGU_CLIENT_SECRET={secret}"`.
@@ -27,7 +27,7 @@ Tier 2 (iugu staff only): restricted entitlements, featured, blocks.
 
 ## Secrets {#secrets}
 
-Secrets are delivered once, only to this CLI, within 10 minutes of approval. Use `--write-env <file>` (0600, git-ignored), `--exec "<cmd> {secret}"` (substituted in-process) or, last resort, `--show-secret`. Never paste a secret into chat, a commit or a log. `iugu app credentials list` shows only prefixes.
+Secrets are delivered once, only to this CLI, within one hour of approval. Use `--write-env <file>` (0600, git-ignored), `--exec "<cmd> {secret}"` (substituted in-process) or, last resort, `--show-secret`. Never paste a secret into chat, a commit or a log. `iugu app credentials list` shows only prefixes.
 
 ## Integration facts {#integration}
 
