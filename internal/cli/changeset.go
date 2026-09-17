@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/iugu-private/platform2-cli/internal/api"
+	"github.com/iugu-private/platform2-cli/internal/config"
 	"github.com/iugu-private/platform2-cli/internal/output"
 )
 
@@ -30,7 +31,8 @@ func (rt *Runtime) changesetCommand() *cobra.Command {
   ip_whitelist.set {"app_id","ips"}                      apps.discard {"app_id"}
   installations.create {"app_id"}                        installations.resync {"installation_id"}
   deploy_tokens.create {"app_id","name","scope","expires_in"}
-Example: iugu changeset create --workspace W --op 'oauth.update:{"app_id":"A","callbacks":["https://x/cb"]}' --op 'listing.publish:{"app_id":"A","public":true,"draft":false}' --submit --wait`,
+Inside a project (iugu.toml) "app_id" defaults to the project's app and the workspace to its development workspace.
+Example: iugu changeset create --op 'oauth.update:{"callbacks":["https://x/cb"]}' --op 'listing.publish:{"public":true,"draft":false}' --submit --wait`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := rt.workspaceArg(workspace)
 			if err != nil {
@@ -39,6 +41,9 @@ Example: iugu changeset create --workspace W --op 'oauth.update:{"app_id":"A","c
 			operations, err := parseOps(ops, file)
 			if err != nil {
 				return err
+			}
+			if project, ok, _ := config.FindProject("."); ok && project.App.ID != "" {
+				fillAppID(operations, project.App.ID) // inside a project, ops default to its app
 			}
 			client, err := rt.apiClient(cmd.Context())
 			if err != nil {
@@ -216,6 +221,23 @@ func parseOps(ops []string, file string) ([]map[string]any, error) {
 		return nil, &output.Exit{Code: output.ExitUsage, Message: "no operations: pass --op type:json or -f ops.json"}
 	}
 	return list, nil
+}
+
+// fillAppID sets params.app_id on operations that take one and did not specify it.
+func fillAppID(operations []map[string]any, appID string) {
+	for _, op := range operations {
+		if op["op"] == "installations.resync" {
+			continue
+		}
+		params, _ := op["params"].(map[string]any)
+		if params == nil {
+			params = map[string]any{}
+			op["params"] = params
+		}
+		if _, has := params["app_id"]; !has {
+			params["app_id"] = appID
+		}
+	}
 }
 
 func (rt *Runtime) approvalsCommand() *cobra.Command {

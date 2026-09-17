@@ -150,6 +150,7 @@ func (rt *Runtime) rootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			auth.LockDir = dir
 			kind := rt.storeFlag
 			if kind == "" {
 				kind = os.Getenv(config.EnvStore)

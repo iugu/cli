@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -102,6 +104,17 @@ func (s *Session) Fresh(ctx context.Context, c *Client, st store.Store, profile 
 	if s.RefreshToken == "" {
 		return "", ErrLoginRequired
 	}
+	// Serialise refreshes across concurrent CLI processes: the refresh token rotates on use and reuse
+	// revokes the whole grant, so a second process must adopt the first one's result instead of
+	// presenting the same (now burnt) token.
+	unlock := lockRefresh(profile)
+	defer unlock()
+	if st != nil {
+		if other, err := Load(st, profile); err == nil && other.RefreshToken != s.RefreshToken && other.AccessToken != "" && time.Until(other.ExpiresAt) > 30*time.Second {
+			*s = *other
+			return s.AccessToken, nil
+		}
+	}
 	ts, err := c.Refresh(ctx, s.RefreshToken, "")
 	if err != nil {
 		var oe *OAuthError
@@ -121,4 +134,41 @@ func (s *Session) Fresh(ctx context.Context, c *Client, st store.Store, profile 
 		}
 	}
 	return s.AccessToken, nil
+}
+
+// LockDir holds the refresh lock files (the CLI sets it to its config directory).
+var LockDir = os.TempDir()
+
+// lockRefresh takes a best-effort, portable inter-process lock (O_EXCL file; stale after 30 s; gives
+// up after 20 s so a wedged lock never blocks a login forever).
+func lockRefresh(profile string) (unlock func()) {
+	path := filepath.Join(LockDir, "refresh-"+sanitize(profile)+".lock")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(path) }
+		}
+		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
+			_ = os.Remove(path)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return func() {}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func sanitize(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '-' || r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }

@@ -302,3 +302,22 @@ func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 		t.Fatalf("env mapping: %v", got)
 	}
 }
+
+func TestFillAppID(t *testing.T) {
+	ops := []map[string]any{
+		{"op": "oauth.update", "params": map[string]any{"url": "https://x"}},
+		{"op": "credentials.create", "params": map[string]any{"app_id": "other"}},
+		{"op": "installations.resync", "params": map[string]any{"installation_id": "i"}},
+		{"op": "listing.publish"},
+	}
+	fillAppID(ops, "app1")
+	if ops[0]["params"].(map[string]any)["app_id"] != "app1" || ops[1]["params"].(map[string]any)["app_id"] != "other" {
+		t.Fatalf("app_id defaulting: %v", ops)
+	}
+	if _, has := ops[2]["params"].(map[string]any)["app_id"]; has {
+		t.Fatal("resync takes no app_id")
+	}
+	if ops[3]["params"].(map[string]any)["app_id"] != "app1" {
+		t.Fatal("nil params must be created")
+	}
+}

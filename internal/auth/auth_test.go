@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,6 +200,7 @@ func TestExchangeRefreshRevokeAndSession(t *testing.T) {
 		t.Fatal("rotated refresh token was not saved")
 	}
 	loaded.RefreshToken, loaded.AccessToken = "dead", ""
+	_ = loaded.Save(st, "default") // the store agrees the token is dead (otherwise Fresh adopts the stored, fresher login)
 	if _, err := loaded.Fresh(context.Background(), c, st, "default"); !errors.Is(err, ErrLoginRequired) {
 		t.Fatalf("expected login required, got %v", err)
 	}
@@ -230,5 +233,54 @@ func TestDevicePollingHonoursSlowDownAndPending(t *testing.T) {
 	}
 	if _, err := c.PollDeviceOnce(context.Background(), "dc"); err != nil {
 		t.Fatalf("once after approval: %v", err)
+	}
+}
+
+func TestFreshSerialisesConcurrentRefreshes(t *testing.T) {
+	LockDir = t.TempDir()
+	var refreshes int32
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/token" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = r.ParseForm()
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "rt-1" {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		atomic.AddInt32(&refreshes, 1)
+		time.Sleep(150 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"refresh_token":"rt-2","expires_in":1800,"token_type":"Bearer"}`, fakeJWT(map[string]any{"sub": "user:1", "exp": time.Now().Add(time.Hour).Unix()}))
+	}))
+	defer as.Close()
+	client := &Client{ClientID: "cli", Metadata: &Metadata{Issuer: as.URL, TokenEndpoint: as.URL + "/token"}, HTTP: as.Client()}
+	st := &store.Memory{}
+	base := &Session{RefreshToken: "rt-1", ExpiresAt: time.Now().Add(-time.Minute)}
+	if err := base.Save(st, "p"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, _ := Load(st, "p")
+			_, err := s.Fresh(context.Background(), client, st, "p")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent refresh failed: %v", err)
+		}
+	}
+	if n := atomic.LoadInt32(&refreshes); n != 1 {
+		t.Fatalf("expected exactly one refresh, got %d", n)
 	}
 }
