@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/iugu-private/platform2-cli/internal/api"
+	"github.com/iugu-private/platform2-cli/internal/config"
 	"github.com/iugu-private/platform2-cli/internal/output"
 )
 
@@ -27,6 +28,7 @@ type approvalOptions struct {
 	writeEnv   string
 	execCmd    string
 	showSecret bool
+	projectDir string // where to look for iugu.toml (default: the working directory)
 }
 
 // handleResponse deals with a Tier 0/Tier 1 response uniformly: 2xx prints the resource; 202 prints
@@ -127,6 +129,9 @@ func (rt *Runtime) deliverOutcome(ctx context.Context, client *api.Client, cs ma
 		return nil
 	}
 	result := map[string]any{"status": status, "change_set_id": id, "result": cs["result"]}
+	if path, credential := recordCredential(opts.projectDir, id, cs); credential != "" {
+		result["project"] = map[string]any{"path": path, "credential": credential}
+	}
 	available := api.Str(cs, "secrets", "available") == "true"
 	if available && (opts.writeEnv != "" || opts.execCmd != "" || opts.showSecret) {
 		r, err := client.Get(ctx, "/v1/change-sets/"+id+"/secrets", nil)
@@ -154,6 +159,29 @@ func (rt *Runtime) deliverOutcome(ctx context.Context, client *api.Client, cs ma
 		}
 	})
 	return nil
+}
+
+// recordCredential replaces `credential = 'pending:<change set>'` in the project's iugu.toml with the id of
+// the credential the applied change set created, so the project stops pointing at a change set.
+func recordCredential(dir, changeSetID string, cs map[string]any) (path, credential string) {
+	if dir == "" {
+		dir = "."
+	}
+	project, ok, err := config.FindProject(dir)
+	if err != nil || !ok || project.Development.Credential != "pending:"+changeSetID {
+		return "", ""
+	}
+	for _, r := range api.List(cs, "result") {
+		m, _ := r.(map[string]any)
+		if api.Str(m, "op") == "credentials.create" && api.Str(m, "credential_id") != "" {
+			project.Development.Credential = api.Str(m, "credential_id")
+			if err := project.Save(project.Path); err != nil {
+				return "", ""
+			}
+			return project.Path, project.Development.Credential
+		}
+	}
+	return "", ""
 }
 
 // deliverSecrets flattens the per-operation secrets into env vars and delivers them by the chosen route.
@@ -275,6 +303,7 @@ func execWithSecrets(command string, env map[string]string) error {
 	}
 	for i, p := range parts {
 		p = strings.ReplaceAll(p, "{secret}", secret)
+		p = strings.ReplaceAll(p, "{token}", env["IUGU_ACCESS_TOKEN"])
 		for k, v := range env {
 			p = strings.ReplaceAll(p, "{"+k+"}", v)
 		}
@@ -324,7 +353,8 @@ func splitCommand(command string) []string {
 }
 
 func redactCommand(command string) string {
-	return strings.ReplaceAll(command, "{secret}", "{secret:redacted}")
+	command = strings.ReplaceAll(command, "{secret}", "{secret:redacted}")
+	return strings.ReplaceAll(command, "{token}", "{token:redacted}")
 }
 
 func addApprovalFlags(f *pflag.FlagSet, opts *approvalOptions) {

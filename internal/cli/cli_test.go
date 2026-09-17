@@ -123,7 +123,7 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 			status = "applied"
 			secrets = map[string]any{"available": true, "expires_at": "2030-01-01T00:00:00Z"}
 		}
-		writeJSON(w, 200, map[string]any{"id": "cs1", "status": status, "result": []any{map[string]any{"credential_id": "cred1"}}, "secrets": secrets,
+		writeJSON(w, 200, map[string]any{"id": "cs1", "status": status, "result": []any{map[string]any{"op": "credentials.create", "credential_id": "cred1"}}, "secrets": secrets,
 			"diff": []any{map[string]any{"summary": `Create credential "dev" for app "Acme"`}}})
 	})
 	mux.HandleFunc("/v1/change-sets/cs1/secrets", func(w http.ResponseWriter, r *http.Request) {
@@ -241,9 +241,16 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 
 	// wait + write-env: secrets land in a 0600 file, never in stdout
 	envPath := filepath.Join(dir, ".env.local")
+	if err := os.WriteFile(filepath.Join(dir, "iugu.toml"), []byte("[app]\nid = 'app1'\n[development]\nworkspace = 'ws1'\ncredential = 'pending:cs1'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
 	code, out, _ = run(t, dir, f.srv.URL, "changeset", "wait", "cs1", "--write-env", envPath, "--json")
 	if code != 0 || !strings.Contains(out, `"status": "applied"`) {
 		t.Fatalf("wait: %d %s", code, out)
+	}
+	if toml, _ := os.ReadFile(filepath.Join(dir, "iugu.toml")); !strings.Contains(string(toml), "credential = 'cred1'") || !strings.Contains(out, `"credential": "cred1"`) {
+		t.Fatalf("iugu.toml should point at the created credential: %s\n%s", toml, out)
 	}
 	if strings.Contains(out, "s3cr3t") {
 		t.Fatal("secret leaked to stdout")
@@ -312,6 +319,16 @@ func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 	}
 	if redactCommand("fly secrets set S={secret}") != "fly secrets set S={secret:redacted}" {
 		t.Fatal("redaction")
+	}
+	if redactCommand("curl -H 'Authorization: Bearer {token}'") != "curl -H 'Authorization: Bearer {token:redacted}'" {
+		t.Fatal("token redaction")
+	}
+	tokenMarker := filepath.Join(dir, "token.txt")
+	if err := execWithSecrets(`sh -c "printf %s {token} > `+tokenMarker+`"`, map[string]string{"IUGU_ACCESS_TOKEN": "at-123"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(tokenMarker); string(data) != "at-123" {
+		t.Fatalf("{token} substitution failed: %q", data)
 	}
 	got := envFromSecrets(map[string]any{"0": map[string]any{"client_id": "a", "client_secret": "s", "credential_id": "c"}, "1": map[string]any{"token": "t", "deploy_token_id": "d"}})
 	if got["IUGU_CLIENT_SECRET"] != "s" || got["IUGU_TOKEN_2"] != "t" {

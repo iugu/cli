@@ -157,7 +157,8 @@ Example: iugu changeset create --op 'oauth.update:{"callbacks":["https://x/cb"]}
 		return nil
 	}}
 	var listStatus string
-	list := &cobra.Command{Use: "list", Short: "List change sets of the consented workspaces (all statuses; filter with --status)", RunE: func(cmd *cobra.Command, args []string) error {
+	var full bool
+	list := &cobra.Command{Use: "list", Short: "List change sets of the consented workspaces (compact rows; --status to filter, --full for whole objects)", RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := rt.apiClient(cmd.Context())
 		if err != nil {
 			return err
@@ -171,7 +172,14 @@ Example: iugu changeset create --op 'oauth.update:{"callbacks":["https://x/cb"]}
 		if err != nil {
 			return err
 		}
-		rt.Printer.Result(map[string]any{"data": items}, func(w io.Writer) {
+		data := items
+		if !full {
+			data = make([]any, 0, len(items))
+			for _, it := range items {
+				data = append(data, compactChangeSet(it))
+			}
+		}
+		rt.Printer.Result(map[string]any{"data": data}, func(w io.Writer) {
 			rows := [][]string{}
 			for _, it := range items {
 				m, _ := it.(map[string]any)
@@ -182,6 +190,7 @@ Example: iugu changeset create --op 'oauth.update:{"callbacks":["https://x/cb"]}
 		return nil
 	}}
 	list.Flags().StringVar(&listStatus, "status", "", "comma-separated statuses: draft, pending_approval, approved, applied, rejected, expired, failed")
+	list.Flags().BoolVar(&full, "full", false, "print whole change set objects (diff, operations, result) instead of compact rows")
 	cmd.AddCommand(create, list, show, submitCmd, wait, secrets, withdraw)
 
 	return cmd
@@ -221,6 +230,24 @@ func parseOps(ops []string, file string) ([]map[string]any, error) {
 		return nil, &output.Exit{Code: output.ExitUsage, Message: "no operations: pass --op type:json or -f ops.json"}
 	}
 	return list, nil
+}
+
+// compactChangeSet keeps what an agent needs to pick a change set; `iugu changeset show <id>` has the rest.
+func compactChangeSet(it any) map[string]any {
+	m, _ := it.(map[string]any)
+	ops := []string{}
+	for _, d := range api.List(m, "diff") {
+		dm, _ := d.(map[string]any)
+		ops = append(ops, api.Str(dm, "op"))
+	}
+	row := map[string]any{
+		"id": api.Str(m, "id"), "status": api.Str(m, "status"), "title": api.Str(m, "title"), "summary": summarize(m), "operations": ops,
+		"workspace": m["workspace"], "app": m["app"], "created_at": api.Str(m, "created_at"), "expires_at": api.Str(m, "expires_at"),
+	}
+	if u := api.Str(m, "approval", "url"); u != "" {
+		row["approval_url"] = u
+	}
+	return row
 }
 
 // fillAppID sets params.app_id on operations that take one and did not specify it.

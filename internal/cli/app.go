@@ -104,6 +104,7 @@ JWKS/verify/userinfo endpoints, client_id, redirect-URI rules, ACR values, the a
 			if opts.writeEnv == "" && opts.wait {
 				opts.writeEnv = filepath.Join(dir, ".env.local")
 			}
+			opts.projectDir = dir
 			human := func(w io.Writer) { fmt.Fprintf(w, "App %s ready.\n", appID) }
 			err = rt.handleResponse(ctx, client, cred, opts, human)
 			if ex, ok := err.(*output.Exit); ok && ex.Code == output.ExitApproval {
@@ -114,12 +115,6 @@ JWKS/verify/userinfo endpoints, client_id, redirect-URI rules, ACR values, the a
 				payload["integration"] = facts
 				payload["next_step"] = fmt.Sprintf("iugu changeset wait %s --write-env .env.local", api.Str(cred.Body, "id"))
 				ex.Payload = payload
-			}
-			if err == nil && cred.Status == 202 {
-				if p, ok, _ := config.FindProject(dir); ok {
-					p.Development.Credential = "approved"
-					_ = p.Save(p.Path)
-				}
 			}
 			return err
 		},
@@ -448,10 +443,13 @@ func (rt *Runtime) installationID(cmd *cobra.Command, explicit, appFlag, workspa
 }
 
 func (rt *Runtime) appTokenCommand() *cobra.Command {
-	var appFlag, audience, scope string
+	var appFlag, audience, scope, execCmd, writeEnv string
 	cmd := &cobra.Command{
 		Use:   "token",
-		Short: "Mint a five-minute Console app token for one of your own apps (test /verify, /userinfo, other apps)",
+		Short: "Mint a short-lived Console app token for one of your own apps (test /verify, /userinfo, other apps)",
+		Long: `Prints the token unless a sink is given: --exec "curl -H 'Authorization: Bearer {token}' …" runs a command with the
+token substituted in-process (also as $IUGU_ACCESS_TOKEN); --write-env FILE stores IUGU_ACCESS_TOKEN (0600). Agents should
+prefer a sink so the token never lands in a transcript.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := rt.appArg(appFlag)
 			if err != nil {
@@ -472,13 +470,41 @@ func (rt *Runtime) appTokenCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rt.Printer.Result(r.Body, func(w io.Writer) { fmt.Fprintln(w, api.Str(r.Body, "access_token")) })
+			if execCmd == "" && writeEnv == "" {
+				rt.Printer.Result(r.Body, func(w io.Writer) { fmt.Fprintln(w, api.Str(r.Body, "access_token")) })
+				return nil
+			}
+			token := api.Str(r.Body, "access_token")
+			env := map[string]string{"IUGU_ACCESS_TOKEN": token}
+			out := map[string]any{"sub": r.Body["sub"], "aud": r.Body["aud"], "expires_in": r.Body["expires_in"], "token_type": r.Body["token_type"]}
+			if writeEnv != "" {
+				if err := writeEnvFile(writeEnv, env); err != nil {
+					return err
+				}
+				out["written"] = writeEnv
+			}
+			if execCmd != "" {
+				if err := execWithSecrets(execCmd, env); err != nil {
+					return err
+				}
+				out["executed"] = redactCommand(execCmd)
+			}
+			rt.Printer.Result(out, func(w io.Writer) {
+				if written, ok := out["written"]; ok {
+					fmt.Fprintf(w, "Token written to %s (0600)\n", written)
+				}
+				if executed, ok := out["executed"]; ok {
+					fmt.Fprintf(w, "Ran: %s\n", executed)
+				}
+			})
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&appFlag, "app", "", "app id (default: iugu.toml)")
 	cmd.Flags().StringVar(&audience, "audience", "", "e.g. Iugu.Platform.<app id> of the app to call")
 	cmd.Flags().StringVar(&scope, "scope", "", "scope")
+	cmd.Flags().StringVar(&execCmd, "exec", "", "run a command with {token} substituted in-process instead of printing the token")
+	cmd.Flags().StringVar(&writeEnv, "write-env", "", "write IUGU_ACCESS_TOKEN into this dotenv file (0600) instead of printing the token")
 	return cmd
 }
 
