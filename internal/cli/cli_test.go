@@ -18,10 +18,11 @@ import (
 
 // fakeConsole stands for the AS + Lifecycle API together (same host), enough for the command flows.
 type fakeConsole struct {
-	srv        *httptest.Server
-	statusCode atomic.Int32 // change set status progression
-	secretsHit atomic.Int32
-	devicePoll atomic.Int32
+	srv          *httptest.Server
+	statusCode   atomic.Int32 // change set status progression
+	secretsHit   atomic.Int32
+	devicePoll   atomic.Int32
+	revokedGrant bool // when true every API call answers 401 invalid_token
 }
 
 func jwtWith(claims map[string]any) string {
@@ -62,7 +63,7 @@ func newFakeConsole(t *testing.T) *fakeConsole {
 	})
 	mux.HandleFunc("/revoke", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("{}")) })
 	auth := func(w http.ResponseWriter, r *http.Request) bool {
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || f.revokedGrant {
 			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token", resource_metadata="x"`)
 			writeJSON(w, 401, map[string]any{"error": map[string]any{"code": "invalid_token", "message": "Missing or invalid bearer token"}})
 			return false
@@ -210,6 +211,21 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Dev Workspace") {
 		t.Fatalf("me: %d %s", code, out)
 	}
+	// auth status verifies the grant online; a revoked grant flips logged_in even though the store has a login
+	code, out, _ = run(t, dir, f.srv.URL, "auth", "status", "--json")
+	if code != 0 || !strings.Contains(out, `"logged_in": true`) || !strings.Contains(out, `"verified": true`) {
+		t.Fatalf("auth status online: %d %s", code, out)
+	}
+	f.revokedGrant = true
+	code, out, _ = run(t, dir, f.srv.URL, "auth", "status", "--json")
+	if code != 0 || !strings.Contains(out, `"logged_in": false`) || !strings.Contains(out, "revoked") {
+		t.Fatalf("auth status after revocation: %d %s", code, out)
+	}
+	code, out, _ = run(t, dir, f.srv.URL, "auth", "status", "--offline", "--json")
+	if code != 0 || !strings.Contains(out, `"logged_in": true`) {
+		t.Fatalf("auth status offline: %d %s", code, out)
+	}
+	f.revokedGrant = false
 
 	// 6: stale ETag
 	code, out, _ = run(t, dir, f.srv.URL, "app", "update", "--app", "app1", "--name", "x", "--if-match", `"stale"`, "--json")

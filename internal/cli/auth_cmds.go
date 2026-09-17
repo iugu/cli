@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/iugu-private/platform2-cli/internal/api"
+	"github.com/iugu-private/platform2-cli/internal/auth"
 	"github.com/iugu-private/platform2-cli/internal/output"
 	"github.com/iugu-private/platform2-cli/internal/store"
 )
@@ -43,21 +44,52 @@ func (rt *Runtime) logoutCommand() *cobra.Command {
 
 func (rt *Runtime) authCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "auth", Short: "Inspect the stored login"}
-	cmd.AddCommand(&cobra.Command{
+	var offline bool
+	status := &cobra.Command{
 		Use:   "status",
-		Short: "Show the login (always exits 0; `logged_in` tells the truth)",
+		Short: "Show the login (always exits 0; `logged_in` tells the truth — the grant is checked online unless --offline)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			session, err := rt.loadSession()
 			if err != nil {
 				rt.Printer.Result(statusPayload(nil, rt.store.Name(), false), func(w io.Writer) { fmt.Fprintln(w, "Not logged in. Run `iugu login`.") })
 				return nil
 			}
-			rt.Printer.Result(statusPayload(session, rt.store.Name(), true), func(w io.Writer) {
+			payload := statusPayload(session, rt.store.Name(), true)
+			if !offline {
+				// A grant can be revoked from the Connected agents page or by a logout elsewhere; the local
+				// copy cannot know, so probe the API (a refresh happens here when the access token expired).
+				payload["verified"] = false
+				if client, err := rt.apiClient(cmd.Context()); err == nil {
+					if _, err := client.Get(cmd.Context(), "/v1/me", nil); err == nil {
+						payload["verified"] = true
+					} else if api.IsCode(err, "invalid_token") || errors.Is(err, auth.ErrLoginRequired) {
+						payload["logged_in"] = false
+						payload["verified"] = true
+						payload["reason"] = "the grant was revoked or expired; run `iugu login`"
+					} else {
+						payload["reason"] = "could not reach the API: " + err.Error()
+					}
+				} else if errors.Is(err, auth.ErrLoginRequired) {
+					payload["logged_in"] = false
+					payload["verified"] = true
+					payload["reason"] = "the grant was revoked or expired; run `iugu login`"
+				}
+			}
+			rt.Printer.Result(payload, func(w io.Writer) {
+				if payload["logged_in"] == false {
+					fmt.Fprintf(w, "Not logged in (%s).\n", payload["reason"])
+					return
+				}
 				fmt.Fprintf(w, "Logged in as %s (%s)\nAPI: %s\nScopes: %v\nWorkspaces: %v\nGrant: %s\nStore: %s\n", session.Email, session.Sub, session.API, session.Scopes, session.Workspaces, session.GrantID, rt.store.Name())
+				if payload["verified"] == false {
+					fmt.Fprintf(w, "(not verified online: %v)\n", payload["reason"])
+				}
 			})
 			return nil
 		},
-	}, &cobra.Command{
+	}
+	status.Flags().BoolVar(&offline, "offline", false, "do not verify the grant with the API")
+	cmd.AddCommand(status, &cobra.Command{
 		Use:   "token",
 		Short: "Print a fresh access token (5 minutes) for scripts — prefer the CLI itself",
 		RunE: func(cmd *cobra.Command, args []string) error {
