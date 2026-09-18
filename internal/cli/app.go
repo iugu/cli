@@ -21,7 +21,7 @@ func (rt *Runtime) appCommand() *cobra.Command {
 	cmd.AddCommand(rt.appInstallCommands()...)
 	cmd.AddCommand(rt.appTokenCommand(), rt.appEnvCommand(), rt.appDiscardCommand())
 	cmd.AddCommand(rt.appPermissionsCommand(), rt.appOauthCommand(), rt.appCredentialsCommand(), rt.appCertificatesCommand(),
-		rt.appIPWhitelistCommand(), rt.appEntitlementsCommand(), rt.appActionsCommand(), rt.appAgreementsCommand(), rt.appImagesCommand(),
+		rt.appIPWhitelistCommand(), rt.appEntitlementsCommand(), rt.appActionsCommand(), rt.appBillingCommand(), rt.appAgreementsCommand(), rt.appImagesCommand(),
 		rt.appDeployTokensCommand())
 	return cmd
 }

@@ -47,6 +47,15 @@ An app can publish **actions** (and triggers) that Workflow and **Iugu for AI** 
 
 Your endpoint must verify the bearer token (JWKS, `iss`, `aud = Iugu.Platform.<client_id>`, `typ at+JWT`) and call `/verify` with `token.sub` for `authorization.action` — the principal is a person (`user:…`) or an app acting as itself (`app:…`); the app that carried the call (`token.client_id`: Iugu for AI, a Workflow) is attribution to record, never something to authorize. A consumer can never do what its principal cannot. Bridge tokens have no session — never rely on `/userinfo` for them.
 
+## Billing of your app, through Console {#billing}
+
+Everything goes through Console (`iugu`, Iugu for AI); you never call Billing. A **plan** has **versions**; a version has **prices** (`unit` — amount per event; `package` — amount per `size` events; `bulk` / `tiered` — `tiers: [{ amount, maximum_count }]`, the last tier with `maximum_count: null`); amounts are strings in BRL; each price names the **event** your app reports to Billing. The **default** version prices every new subscription; existing subscriptions keep theirs. Statuses: `draft` (editable) → `published` (frozen; create a new version to change prices).
+
+- Tier 0 (no approval): `iugu app billing plan` · `plan create` (first time; empty draft v1) · `version <id>` · `version create [--clone-from <id>]` (one draft at a time) · `prices set <version> --input '[…]'` (declarative, the whole list) · `prices add|update|remove` · `preview <version> --quantity <event>=<n> …` (what a month of usage would cost — run it before publishing).
+- Tier 1 (one approval, exit 5 with `approval.url`, then `iugu changeset wait`): `publish <version> [--default]` (the app must be billable: `iugu app publish --billable`), `default <version>`, `discard` (cancels every active subscription — say so to the human).
+- Reports: `iugu app billing events summary|failed` (usage of your app as Billing counts it; refused events by reason) · `iugu billing revenue` (what your apps billed/received/have outstanding, per competency and app) · `iugu billing invoices [id] [--status …] [--competency YYYY-MM]` and `iugu billing pending` (what the workspace owes for the apps it uses) · `iugu billing subscriptions`.
+- Errors: `billing_unavailable` (503) — Billing is not deployed in this environment; `version_published` (409) — create a new version instead; `draft_exists` (409, `details.draft_version_id`); `validation_failed` (422, `details` per field).
+
 ## Sandboxes and harness quirks {#sandboxes}
 
 - **No network** (Codex `workspace-write` default, some CI): every `iugu` call fails with a connection error and a hint. Ask the human to enable outbound network for the sandbox (Codex: `sandbox_workspace_write.network_access = true`) or to run the command outside it.

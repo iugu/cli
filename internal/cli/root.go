@@ -219,7 +219,7 @@ func (rt *Runtime) rootCommand() *cobra.Command {
 	pf.BoolVarP(&rt.quiet, "quiet", "q", false, "suppress diagnostics on stderr")
 
 	root.AddCommand(rt.loginCommand(), rt.logoutCommand(), rt.authCommand(), rt.meCommand(), rt.workspaceCommand(),
-		rt.appCommand(), rt.changesetCommand(), rt.approvalsCommand(), rt.verifyCommand(), rt.testPrincipalCommand(),
+		rt.appCommand(), rt.billingCommand(), rt.changesetCommand(), rt.approvalsCommand(), rt.verifyCommand(), rt.testPrincipalCommand(),
 		rt.giaCommand(), rt.catalogCommand(), rt.agentCommand(), rt.docsCommand())
 	return root
 }
