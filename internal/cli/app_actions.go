@@ -26,7 +26,7 @@ import (
 //	call   mints the app's OWN token (client_credentials, aud = the app) and performs the action's HTTP operation
 //	       exactly as a consumer would — path/query/body per the manifest, `Workspace` header — printing the answer.
 //	       It is a test aid for the provider's author: the caller is the app itself, so the provider's /verify sees
-//	       [app:<id>, app:<id>] and `acr` rules for humans are not exercised. Humans reach the same action through
+//	       sub = app:<id> and `acr` rules for humans are not exercised. Humans reach the same action through
 //	       Iugu for AI (tool <tag>__<name>), where the person's identity and step-ups apply.
 func (rt *Runtime) appActionsCommand() *cobra.Command {
 	var appFlag string
@@ -72,7 +72,7 @@ itself (POST /v1/apps/{id}/tokens: client_credentials, audience = the app) and p
 consumer would: path parameters into :name placeholders, query parameters on the URL, body parameters as a JSON object,
 plus the Workspace header (short id). Inputs come from --input '{json}', --input-file <path> or repeated --arg name=value.
 
-The caller is the app itself, so the provider's /verify sees the app on both sides and the action's acr requirement for
+The caller is the app itself, so the provider's /verify sees sub = app:<id> and the action's acr requirement for
 humans is not exercised (app tokens carry no acr): a 401 insufficient_user_authentication answer means the provider
 enforces it — through Iugu for AI the person confirms that call. --token <jwt> uses another bearer token instead (for
 example a user token obtained by your app's login) to exercise those rules.`,
