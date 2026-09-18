@@ -169,6 +169,7 @@ func upsertCodex(path, mcpURL string) (bool, error) {
 	if servers == nil {
 		servers = map[string]any{}
 	}
+	// Never `required = true`: Codex then refuses to start any session while the server is unreachable.
 	entry := map[string]any{"url": mcpURL, "auth": "oauth"}
 	if existing, ok := servers["iugu"].(map[string]any); ok && equalJSON(existing, entry) {
 		return false, nil

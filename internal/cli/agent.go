@@ -116,7 +116,13 @@ project. iugu needs outbound HTTPS, and refreshing its login needs a writable cr
       [sandbox_workspace_write]
       network_access = true                 # required for any iugu call
       writable_roots = ["~/.config/iugu"]   # lets the default login refresh in place
-In interactive Codex the agent can also ask you to run a failing command outside the sandbox.`})
+In interactive Codex the agent can also ask you to run a failing command outside the sandbox.
+
+Iugu for AI tools that change things (credentials, publishing, GIA, elevated app actions) are flagged
+destructive, so Codex asks you before calling them — a y/n prompt in interactive Codex, nothing to set up.
+Headless runs (codex exec) refuse them before the call reaches Iugu for AI ("approval policy is never"):
+run "codex exec --approve-for-me", or add to [mcp_servers.iugu]:
+      default_tools_approval_mode = "approve"  # Iugu for AI still asks you to confirm each elevated call on a Console page`})
 		case "claude":
 			recs = append(recs, Recommendation{Harness: "claude", Title: "permissions",
 				Text: `Allow the CLI without prompts by adding "Bash(iugu:*)" to permissions.allow in the project's
