@@ -27,7 +27,7 @@ import (
 //	publish         POST …/plan-versions/{v}/publish    — Tier 1: from then on the version prices subscriptions
 //	default         PUT  …/plan/default-version         — Tier 1: which version new subscriptions get
 //	discard         DELETE …/plan                       — Tier 1: every active subscription is cancelled
-//	events          GET  …/reports/events/summary|failed
+//	events          GET  …/reports/events/summary
 //
 // Workspace reports live under `iugu billing …` (revenue, invoices, pending, subscriptions).
 func (rt *Runtime) appBillingCommand() *cobra.Command {
@@ -365,34 +365,9 @@ func (rt *Runtime) appBillingEventsCommand(appFlag *string) *cobra.Command {
 		})
 		return nil
 	}}
-	failed := &cobra.Command{Use: "failed [--from …] [--to …]", Short: "Events Billing refused, grouped by reason", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := rt.appArg(*appFlag)
-		if err != nil {
-			return err
-		}
-		client, err := rt.apiClient(cmd.Context())
-		if err != nil {
-			return err
-		}
-		r, err := client.Get(cmd.Context(), "/v1/apps/"+id+"/billing/reports/events/failed", dateQuery(from, to))
-		if err != nil {
-			return err
-		}
-		rt.Printer.Result(r.Body, func(w io.Writer) {
-			rows := [][]string{}
-			for _, f := range api.List(r.Body, "failures") {
-				m, _ := f.(map[string]any)
-				rows = append(rows, []string{api.Str(m, "message"), api.Str(m, "count"), api.Str(m, "workspaces")})
-			}
-			output.Table(w, []string{"REASON", "COUNT", "WORKSPACES"}, rows)
-		})
-		return nil
-	}}
-	for _, c := range []*cobra.Command{summary, failed} {
-		c.Flags().StringVar(&from, "from", "", "YYYY-MM-DD (default 30 days before --to)")
-		c.Flags().StringVar(&to, "to", "", "YYYY-MM-DD (default today)")
-	}
-	cmd.AddCommand(summary, failed)
+	summary.Flags().StringVar(&from, "from", "", "YYYY-MM-DD (default 30 days before --to)")
+	summary.Flags().StringVar(&to, "to", "", "YYYY-MM-DD (default today)")
+	cmd.AddCommand(summary)
 	return cmd
 }
 
