@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -73,7 +74,11 @@ func (rt *Runtime) callCommand() *cobra.Command {
 				r, err := client.Post(cmd.Context(), path, body, nil)
 				var apiErr *api.Error
 				if err == nil {
-					rt.Printer.Result(r.Body, func(w io.Writer) { printActionResult(w, r.Body) })
+					rt.Printer.Result(r.Body, func(w io.Writer) {
+						// the provider's answer as it came — pretty JSON is the honest human form for an arbitrary document
+						pretty, _ := json.MarshalIndent(r.Body, "", "  ")
+						fmt.Fprintln(w, string(pretty))
+					})
 					return nil
 				}
 				if !errors.As(err, &apiErr) || apiErr.Code != "step_up_required" {
