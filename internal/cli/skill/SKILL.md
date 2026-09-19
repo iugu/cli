@@ -47,14 +47,34 @@ An app can publish **actions** (and triggers) that Workflow and **Iugu for AI** 
 
 Your endpoint must verify the bearer token (JWKS, `iss`, `aud = Iugu.Platform.<client_id>`, `typ at+JWT`) and call `/verify` with `token.sub` for `authorization.action` — the principal is a person (`user:…`) or an app acting as itself (`app:…`); the app that carried the call (`token.client_id`: Iugu for AI, a Workflow) is attribution to record, never something to authorize. A consumer can never do what its principal cannot. Bridge tokens have no session — never rely on `/userinfo` for them.
 
-## Billing of your app, through Console {#billing}
+## Billing of your app {#billing}
 
-Everything goes through Console (`iugu`, Iugu for AI); you never call Billing. A **plan** has **versions**; a version has **prices** (`unit` — amount per event; `package` — amount per `size` events; `bulk` / `tiered` — `tiers: [{ amount, maximum_count }]`, the last tier with `maximum_count: null`); amounts are strings in BRL; each price names the **event** your app reports to Billing. The **default** version prices every new subscription; existing subscriptions keep theirs. Statuses: `draft` (editable) → `published` (frozen; create a new version to change prices).
+Billing is an **actions provider**: its plan configuration and reports are actions of the app `billing`, called **as you** through
+Console's bridge — `iugu call billing <action> …` here, tools `billing__<action>` in Iugu for AI. Console verifies your own permission for
+the action in the workspace (`billing:plans.read|edit|publish|discard`, `billing:reports.read`, `billing:invoices.show`) and calls Billing
+with your identity; Billing answers as it is. A **plan** has **versions**; a version has **prices** (`unit` — amount per event; `package` —
+amount per `size` events; `bulk` / `tiered` — `tiers: [{ amount, maximum_count }]`, the last tier with `maximum_count: null`); amounts are
+strings in BRL; each price names the **event** your app reports to Billing. The **default** version prices every new subscription; existing
+subscriptions keep theirs. Statuses: `draft` (editable) → `published` (frozen; create a new version to change prices).
 
-- Tier 0 (no approval): `iugu app billing plan` · `plan create` (first time; empty draft v1) · `version <id>` · `version create [--clone-from <id>]` (one draft at a time) · `prices set <version> --input '[…]'` (declarative, the whole list) · `prices add|update|remove` · `preview <version> --quantity <event>=<n> …` (what a month of usage would cost — run it before publishing).
-- Tier 1 (one approval, exit 5 with `approval.url`, then `iugu changeset wait`): `publish <version> [--default]` (the app must be billable: `iugu app publish --billable`), `default <version>`, `discard` (cancels every active subscription — say so to the human).
-- Reports: `iugu app billing events summary` (usage of your app as Billing counts it — an event name no price uses shows here and is never priced; Billing refuses invalid events at the door, so your app's handling of the 201/422 `errors` is the failure channel) · `iugu billing revenue` (what your apps billed/received/have outstanding, per competency and app) · `iugu billing invoices [id] [--status …] [--competency YYYY-MM]` and `iugu billing pending` (what the workspace owes for the apps it uses) · `iugu billing subscriptions`.
-- Errors: `billing_unavailable` (503) — Billing is not deployed in this environment; `version_published` (409) — create a new version instead; `draft_exists` (409, `details.draft_version_id`); `validation_failed` (422, `details` per field).
+- Discover: `iugu app actions list --app billing --json` (every action with its inputs) — or `iugu catalog actions --q billing`.
+- Read (no confirmation): `iugu call billing get_plan --arg app_id=<your app>` · `get_plan_version --arg plan_version_id=<v>` ·
+  `preview_pricing --arg plan_version_id=<v> --input '{"quantities":{"<event>":<n>}}'` (what a month of usage would cost — run it before
+  publishing) · `get_events_summary --arg app_id=<your app> [--arg from=YYYY-MM-DD]` (usage as Billing counts it; an event name no price
+  uses shows here and is never priced) · `get_revenue` · `list_invoices [--arg competency=YYYY-MM]` · `get_invoice --arg invoice_id=<id>` ·
+  `get_pending_amount` · `list_subscriptions`. The workspace is `--workspace` (default: the project's / profile's): the app's **publisher**
+  for plan operations and revenue, the **customer** workspace for invoices and pending amount.
+- Configure (no confirmation; drafts have no effect until published): `create_plan --arg app_id=<your app>` (first time; empty draft v1) ·
+  `create_plan_version --arg plan_id=<p> [--arg clone_from=<v>]` (one draft at a time: 409 `draft_exists` with `details.draft_version_id`) ·
+  `set_prices --arg plan_version_id=<v> --input '{"prices":[{"name","event","model","config"}]}'` (declarative, the whole list) ·
+  `add_price|update_price|remove_price`.
+- Change what customers pay — **the person confirms each call** (exit 7 with `url`; show it, they see the prices in Billing's words and
+  confirm with a verification code; then re-run the same command): `publish_version --arg plan_version_id=<v> [--arg set_as_default=true]`
+  (the app must be billable: `iugu app publish --billable`; 422 `not_billable`) · `set_default_version --arg plan_id=<p> --arg plan_version_id=<v>` ·
+  `discard_plan --arg plan_id=<p>` (cancels every active subscription — say so to the person).
+- Errors (from Billing, passed through): `version_published` (409) — create a new version instead; `draft_exists` (409); `already_published`,
+  `no_prices`, `invalid_prices`, `not_billable`, `version_not_eligible` (422); `validation_failed` (422, `details` per field); `provider_unavailable`
+  (502) — Billing did not answer.
 - Metering, in the app's own code (the only Billing call an app makes): `iugu app permissions set --consumed billing:event.create,billing:event.show` (discover with `iugu catalog actions --q billing`), then `POST {billing}/api/events` as the app itself (client_credentials with `audience=Iugu.Platform.33qqIXOLGKohFVkWBN1Apf`, header `Workspace-Id` = the workspace where the usage happened) with `{"events":[{"name","idempotency_key","timestamp","custom_unit_quantity"?,"tpv"?,"test"?}]}`. `name` must equal a price's `event`; `test: true` events are stored but never invoiced (sandbox). `idempotency_key` (≤ 60 chars) is unique per app and workspace — make it deterministic from the billed entity (`<tag>:<entity>:<suffix>`; the tag prefix keeps keys readable in reports) and never random per attempt: a key Billing already has answers 201 with the key absent from `created`, which is how a safe retry looks. Reference implementation: the sample app's `lib/billing.js`.
 
 ## Sandboxes and harness quirks {#sandboxes}
