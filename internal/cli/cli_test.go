@@ -372,6 +372,14 @@ func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 	if redactCommand("curl -H 'Authorization: Bearer {token}'") != "curl -H 'Authorization: Bearer {token:redacted}'" {
 		t.Fatal("token redaction")
 	}
+	// the child also gets the secrets in its environment: a script can read "$IUGU_CLIENT_SECRET" and feed a tool's stdin
+	envMarker := filepath.Join(dir, "env.txt")
+	if err := execWithSecrets(`sh -c "printf %s $IUGU_CLIENT_SECRET:$IUGU_CLIENT_ID > `+envMarker+`"`, env); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(envMarker); string(data) != "top-secret:app1" {
+		t.Fatalf("environment export failed: %q", data)
+	}
 	tokenMarker := filepath.Join(dir, "token.txt")
 	if err := execWithSecrets(`sh -c "printf %s {token} > `+tokenMarker+`"`, map[string]string{"IUGU_ACCESS_TOKEN": "at-123"}); err != nil {
 		t.Fatal(err)
@@ -482,5 +490,79 @@ func TestElevationGateAgentExit7AndHumanWaitRetry(t *testing.T) {
 	code, out, _ = run(t, dir, f.srv.URL, "gia", "roles", "create", "--workspace", "ws1", "--name", "S", "--policies", "p1", "--json", "--agent", "no")
 	if code != 5 || !strings.Contains(out, "approvals/cs9") {
 		t.Fatalf("human gate should wait, retry and reach the approval: %d %s", code, out)
+	}
+}
+
+// `iugu app env` prints the public integration values the way each deploy target takes them, and never the client
+// secret — every format says where the secret comes from instead of omitting it silently.
+func TestAppEnvFormatsExplainTheSecret(t *testing.T) {
+	f := newFakeConsole(t)
+	dir := t.TempDir()
+	loginFake(t, f, dir)
+
+	code, out, _ := run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1")
+	if code != 0 {
+		t.Fatalf("dotenv exit %d: %s", code, out)
+	}
+	for _, want := range []string{"IUGU_CLIENT_ID=app1\n", "IUGU_APP_TAG=acme\n", "IUGU_WORKSPACE_ID=ws1\n", "IUGU_TOKEN_URL=" + f.srv.URL + "/token\n",
+		"# IUGU_CLIENT_SECRET is never printed here", "iugu changeset wait <change-set-id> --write-env .env.local"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("dotenv output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "IUGU_CLIENT_SECRET=") {
+		t.Fatalf("a secret value line must never appear:\n%s", out)
+	}
+
+	_, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1", "--format", "fly")
+	if n := strings.Count(out, "fly secrets set --stage "); n != 1 {
+		t.Fatalf("fly: the nine values go in one staged call (one release), got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "IUGU_CLIENT_ID=app1 IUGU_ISSUER=") || !strings.Contains(out, "--exec 'fly secrets set IUGU_CLIENT_SECRET={secret}'") {
+		t.Fatalf("fly output:\n%s", out)
+	}
+
+	_, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1", "--format", "railway")
+	if n := strings.Count(out, "railway variable set --skip-deploys "); n != 1 {
+		t.Fatalf("railway: one call, no deploy per variable, got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "--exec 'railway variable set IUGU_CLIENT_SECRET={secret}'") {
+		t.Fatalf("railway secret hint:\n%s", out)
+	}
+
+	_, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1", "--format", "netlify")
+	if n := strings.Count(out, "\nnetlify env:set IUGU_") + 1; n != 9 || !strings.Contains(out, "netlify env:set IUGU_CLIENT_SECRET {secret} --secret") {
+		t.Fatalf("netlify: nine sets + a --secret hint, got %d:\n%s", n, out)
+	}
+
+	_, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1", "--format", "vercel")
+	if n := strings.Count(out, "| vercel env add IUGU_"); n != 9 || !strings.Contains(out, "vercel env add IUGU_CLIENT_SECRET production --value {secret} --yes") {
+		// the nine value lines pipe through printf; the hint's --value form does not, so the count is exact
+		t.Fatalf("vercel: nine adds + a --value hint, got %d:\n%s", n, out)
+	}
+
+	code, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--workspace", "ws1", "--format", "json")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != 0 {
+		t.Fatalf("json exit %d err %v:\n%s", code, err, out)
+	}
+	env := doc["env"].(map[string]any)
+	if env["IUGU_CLIENT_ID"] != "app1" || len(env) != 9 {
+		t.Fatalf("json env: %v", env)
+	}
+	delivery := doc["secret_delivery"].(map[string]any)
+	if delivery["variable"] != "IUGU_CLIENT_SECRET" {
+		t.Fatalf("secret_delivery: %v", delivery)
+	}
+	if by := delivery["exec_by_target"].(map[string]any); by["railway"] != "railway variable set IUGU_CLIENT_SECRET={secret}" || by["fly"] == nil {
+		t.Fatalf("exec_by_target: %v", by)
+	}
+	if cmds := delivery["commands"].(map[string]any); !strings.Contains(cmds["rotate"].(string), "iugu app credentials rotate") {
+		t.Fatalf("commands: %v", cmds)
+	}
+
+	code, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--format", "heroku")
+	if code != 2 {
+		t.Fatalf("unknown format is a usage error (2), got %d: %s", code, out)
 	}
 }

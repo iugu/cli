@@ -522,13 +522,99 @@ prefer a sink so the token never lands in a transcript.`,
 	return cmd
 }
 
+// deployTarget renders the non-secret integration values the way one deploy target's CLI takes them — a single
+// command where the tool allows it, so nine values are one release, not nine — and names the command that puts the
+// client secret in the same place. The secret is never part of `app env`: it exists once, in the vault of the change
+// set that created the credential, and reaches the developer through `iugu changeset wait|secrets --exec` (substituted
+// in-process) or `--write-env`. Every format ends with that hint so the omission explains itself.
+type deployTarget struct {
+	lines     func(keys []string, env map[string]string) []string
+	secret    string // the --exec command for IUGU_CLIENT_SECRET (`{secret}` is substituted by the CLI, never printed)
+	afterward string // what running it does on the target
+}
+
+var deployTargets = map[string]deployTarget{
+	"dotenv": {
+		lines: func(keys []string, env map[string]string) []string {
+			out := make([]string, 0, len(keys))
+			for _, k := range keys {
+				out = append(out, k+"="+env[k])
+			}
+			return out
+		},
+		secret: "--write-env .env.local", afterward: "the file gets IUGU_CLIENT_SECRET (0600)",
+	},
+	"fly": {
+		lines: func(keys []string, env map[string]string) []string {
+			return []string{"fly secrets set --stage " + pairs(keys, env)}
+		},
+		secret: "fly secrets set IUGU_CLIENT_SECRET={secret}", afterward: "this release carries the staged values too",
+	},
+	"railway": {
+		lines: func(keys []string, env map[string]string) []string {
+			return []string{"railway variable set --skip-deploys " + pairs(keys, env)}
+		},
+		secret: "railway variable set IUGU_CLIENT_SECRET={secret}", afterward: "this set triggers the one deploy",
+	},
+	"netlify": {
+		lines: func(keys []string, env map[string]string) []string {
+			out := make([]string, 0, len(keys))
+			for _, k := range keys {
+				out = append(out, "netlify env:set "+k+" "+env[k])
+			}
+			return out
+		},
+		secret: "netlify env:set IUGU_CLIENT_SECRET {secret} --secret", afterward: "write-only on Netlify; applies on the next build",
+	},
+	"vercel": {
+		lines: func(keys []string, env map[string]string) []string {
+			out := make([]string, 0, len(keys))
+			for _, k := range keys {
+				out = append(out, "printf %s "+env[k]+" | vercel env add "+k+" production")
+			}
+			return out
+		},
+		secret: "vercel env add IUGU_CLIENT_SECRET production --value {secret} --yes", afterward: "sensitive on Vercel; applies on the next deploy",
+	},
+}
+
+func pairs(keys []string, env map[string]string) string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k+"="+env[k])
+	}
+	return strings.Join(out, " ")
+}
+
+// secretDeliveryHint is the trailer of every text format: where the tenth variable comes from and the exact command.
+func secretDeliveryHint(format string, target deployTarget) []string {
+	step := "iugu changeset wait <change-set-id> --exec '" + target.secret + "'"
+	if format == "dotenv" {
+		step = "iugu changeset wait <change-set-id> " + target.secret
+	}
+	return []string{
+		"# IUGU_CLIENT_SECRET is never printed here: it exists once, in the change set that created the credential, and is",
+		"# delivered to this CLI when the human approves. Send it where the values above went, substituted in-process:",
+		"#   " + step + "   # " + target.afterward,
+		"#   later (within 1 h of approval): iugu changeset secrets <change-set-id> …  ·  a fresh one: iugu app credentials create --name <name> --wait --exec '…'",
+	}
+}
+
 func (rt *Runtime) appEnvCommand() *cobra.Command {
 	var appFlag, format, workspace string
 	cmd := &cobra.Command{
 		Use:   "env [app-id]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Print the non-secret integration environment (dotenv | fly | netlify | vercel | json)",
+		Short: "Print the non-secret integration environment for a deploy target (dotenv | fly | railway | netlify | vercel | json)",
+		Long: `Prints the nine public integration values (issuer, endpoints, client id, tag, workspace) as the target's CLI takes them —
+one command where the tool allows it. IUGU_CLIENT_SECRET is never part of this output: the CLI does not have it. It exists
+once, in the vault of the change set that created the credential, and is delivered on approval through
+'iugu changeset wait|secrets <id> --exec "<cmd> {secret}"' (substituted in-process) or '--write-env <file>'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target, ok := deployTargets[format]
+			if !ok && format != "json" {
+				return &output.Exit{Code: output.ExitUsage, Message: "--format must be one of dotenv, fly, railway, netlify, vercel, json"}
+			}
 			id, err := rt.appArg(appFromArgs(args, appFlag))
 			if err != nil {
 				return err
@@ -549,28 +635,43 @@ func (rt *Runtime) appEnvCommand() *cobra.Command {
 				"IUGU_CLIENT_ID": id, "IUGU_APP_TAG": api.Str(r.Body, "tag"), "IUGU_WORKSPACE_ID": ws,
 			}
 			if rt.Printer.JSON || format == "json" {
-				rt.Printer.Result(map[string]any{"env": env, "integration": facts}, nil)
+				rt.Printer.Result(map[string]any{"env": env, "integration": facts, "secret_delivery": secretDelivery()}, nil)
 				return nil
 			}
-			for _, k := range sortedKeys(env) {
-				switch format {
-				case "fly":
-					fmt.Fprintf(rt.Printer.Out, "fly secrets set %s=%s\n", k, env[k])
-				case "netlify":
-					fmt.Fprintf(rt.Printer.Out, "netlify env:set %s %s\n", k, env[k])
-				case "vercel":
-					fmt.Fprintf(rt.Printer.Out, "printf %%s %s | vercel env add %s production\n", env[k], k)
-				default:
-					fmt.Fprintf(rt.Printer.Out, "%s=%s\n", k, env[k])
-				}
+			keys := sortedKeys(env)
+			for _, line := range target.lines(keys, env) {
+				fmt.Fprintln(rt.Printer.Out, line)
+			}
+			for _, line := range secretDeliveryHint(format, target) {
+				fmt.Fprintln(rt.Printer.Out, line)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&appFlag, "app", "", "app id (default: iugu.toml)")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "workspace id for IUGU_WORKSPACE_ID")
-	cmd.Flags().StringVar(&format, "format", "dotenv", "dotenv | fly | netlify | vercel | json")
+	cmd.Flags().StringVar(&format, "format", "dotenv", "dotenv | fly | railway | netlify | vercel | json")
 	return cmd
+}
+
+// secretDelivery is the JSON counterpart of the hint: why the secret is absent and every command that delivers it.
+func secretDelivery() map[string]any {
+	byTarget := map[string]string{}
+	for name, target := range deployTargets {
+		byTarget[name] = target.secret
+	}
+	return map[string]any{
+		"variable": "IUGU_CLIENT_SECRET",
+		"absent_because": "it exists once, in the vault of the change set that created the credential, and is delivered only to the CLI " +
+			"that requested it, within one hour of approval; `app env` never has it",
+		"commands": map[string]string{
+			"on_approval": "iugu changeset wait <change_set_id> --exec '<cmd> {secret}' | --write-env <file>",
+			"later":       "iugu changeset secrets <change_set_id> --exec '<cmd> {secret}' | --write-env <file>   (within 1 h of approval)",
+			"new":         "iugu app credentials create --name <name> [--workspaces <ids>] --wait --exec '<cmd> {secret}'",
+			"rotate":      "iugu app credentials rotate --id <credential_id> --wait --exec '<cmd> {secret}'   (old secret revoked at once)",
+		},
+		"exec_by_target": byTarget,
+	}
 }
 
 func (rt *Runtime) appDiscardCommand() *cobra.Command {

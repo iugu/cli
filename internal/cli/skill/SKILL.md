@@ -14,7 +14,7 @@ Always call the CLI with `--json`. Read `error.code` and the exit code: `0` ok �
 3. `iugu app init --name "<App>" --workspace <id> --json` — creates the app (private, draft), installs it in the dev workspace, requests a **workspace-restricted credential** (Tier 1) and writes `iugu.toml`. Exit 5 is normal: give `approval.url` to the human, then `iugu changeset wait <id> --write-env .env.local --json` (it also replaces `credential = 'pending:…'` in `iugu.toml`). Never ask the human for the secret; it lands in `.env.local` (0600). If your session ends before the human approves, run the same `wait` when they come back — secrets stay collectable for one hour after approval; after that, request a new credential.
 4. `iugu app permissions set --implemented a,b --consumed tag:action --grant-scopes informations --json` (Tier 0). Find consumable actions with `iugu catalog actions --q <text> --json`.
 5. Test authorization without real accounts: `iugu test-principal create --name qa --json` → `iugu verify --principal temp:… --action <tag>:<action> --json`. `iugu app token` mints a short-lived app token for `/verify`, `/userinfo`; use it through a sink so it never lands in the transcript: `iugu app token --exec "curl -sS -H 'Authorization: Bearer {token}' https://…/userinfo"` or `--write-env .env.local`.
-6. Deploy the code anywhere (Fly, Netlify, Vercel…); `iugu app env --format fly` prints the non-secret environment; pipe secrets with `iugu changeset secrets <id> --exec "fly secrets set IUGU_CLIENT_SECRET={secret}"`.
+6. Deploy the code anywhere (Fly, Railway, Netlify, Vercel…) — two commands, see [Deploying](#deploying): `iugu app env --format <target>` for the nine public values, `iugu changeset wait|secrets <id> --exec '…{secret}'` for the client secret.
 7. Release: one change set → one approval: `iugu changeset create --op 'oauth.update:{…callbacks…}' --op 'listing.publish:{"public":true,"draft":false}' --op 'credentials.create:{"name":"prod"}' --submit --wait --write-env .env.production --json`.
 
 Pending work: `iugu approvals list --json` (what still needs a human); `iugu changeset list --json` (compact history; `show <id>` for details).
@@ -30,6 +30,30 @@ Tier 2 (iugu staff only): restricted entitlements, featured, blocks.
 ## Secrets {#secrets}
 
 Secrets are delivered once, only to this CLI, within one hour of approval. Use `--write-env <file>` (0600, git-ignored), `--exec "<cmd> {secret}"` (substituted in-process) or, last resort, `--show-secret`. Never paste a secret into chat, a commit or a log. `iugu app credentials list` shows only prefixes.
+
+## Deploying: the environment and the client secret {#deploying}
+
+An app needs ten variables: nine **public** ones (issuer, endpoints, `IUGU_CLIENT_ID`, `IUGU_APP_TAG`, `IUGU_WORKSPACE_ID`) and **one secret**. They travel by different roads on purpose — the CLI never has the secret to print (Console stores only a hash; the plaintext exists once, in the change set that created the credential), so `iugu app env` is safe to print, log or commit, and the secret goes straight from the approval to the deploy target, substituted in-process.
+
+1. Public values, as the target's CLI takes them (one command where the tool allows it, so it is one release, not nine): `iugu app env --format fly|railway|netlify|vercel|dotenv [--workspace <id>] | sh`. Fly gets `fly secrets set --stage …` (staged: the secret step releases everything), Railway `railway variable set --skip-deploys …` (the secret step triggers the one deploy), Netlify/Vercel one line per key. Every format ends with a comment naming the secret command for that target; `--format json` carries the same in `secret_delivery`.
+2. The secret, when the human approves the credential — the exact command per target, `{secret}` substituted by the CLI and redacted in every output:
+   - Fly: `iugu changeset wait <id> --exec 'fly secrets set IUGU_CLIENT_SECRET={secret}'`
+   - Railway: `iugu changeset wait <id> --exec 'railway variable set IUGU_CLIENT_SECRET={secret}'` (run in the linked project; `-s`/`-e` select service/environment)
+   - Netlify: `iugu changeset wait <id> --exec 'netlify env:set IUGU_CLIENT_SECRET {secret} --secret'` (write-only afterwards)
+   - Vercel: `iugu changeset wait <id> --exec 'vercel env add IUGU_CLIENT_SECRET production --value {secret} --yes'` (sensitive by default)
+   - Any host / a server: `--write-env .env.production` (0600) and ship the file by your own secure channel. The `--exec` child also receives `IUGU_CLIENT_SECRET`, `IUGU_CLIENT_ID` and `IUGU_CREDENTIAL_ID` in its **environment**, so a script of yours (`--exec ./push-secret.sh`) can read `"$IUGU_CLIENT_SECRET"` and feed a tool's stdin (`railway variable set K --stdin`, `fly secrets import`) without the value ever being a command argument.
+   `<id>` is the change set of `iugu app init` / `iugu app credentials create` / the release's `credentials.create` op; `--wait` on those commands takes the same `--exec`/`--write-env`, so creation and delivery are one command. Missed the hour? Request a new credential — never ask the human for the value.
+3. Then deploy the code (`fly deploy`, `railway up`, `git push`…). Environments: one credential per environment (`--name prod`, `--name staging`); development credentials **workspace-restricted** (`--workspaces <dev workspace>`), so a leaked dev secret cannot act elsewhere.
+
+## Rotating the client secret {#rotation}
+
+Console accepts any **valid** credential of the app at `token_url`, so two can overlap — the zero-downtime recipe:
+
+1. `iugu app credentials create --name prod-<date> --wait --exec '<target command with {secret}>'` (Tier 1: `--wait` blocks until the human approves on `approval.url`, then runs the `--exec`; without `--wait` it exits 5 and you finish later with `iugu changeset wait|secrets <id> --exec …`). The new secret lands on the deploy target and the app picks it up on its restart/redeploy; both credentials work meanwhile.
+2. Confirm the app authenticates with the new one (its own health/login, `iugu app credentials list` shows both `valid`).
+3. `iugu app credentials revoke --id <old credential id>` (Tier 1). Done — no window in which the app has no working secret.
+
+Immediate rotation (a secret leaked): `iugu app credentials rotate --id <id> --wait --exec '…'` creates the replacement **and revokes the old one in the same transaction**; between the approval and the redeploy the app cannot mint or refresh tokens — accept that gap only when the leak matters more. `iugu app credentials revoke --id <id>` alone kills a credential outright. Rotation never changes `IUGU_CLIENT_ID` (the app id): only the secret and `IUGU_CREDENTIAL_ID` move.
 
 ## Integration facts {#integration}
 
