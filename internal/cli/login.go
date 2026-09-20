@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -215,12 +216,20 @@ func (rt *Runtime) finishLogin(ts *auth.TokenSet, issuer, resource string) error
 		return fmt.Errorf("storing the login: %w", err)
 	}
 	ignoreProjectLocalConfigDir()
-	if _, ok := rt.configFile.Profiles[rt.profileName]; !ok || rt.configFile.Profiles[rt.profileName].API != rt.profile.API {
-		p := rt.configFile.Profiles[rt.profileName]
+	p, ok := rt.configFile.Profiles[rt.profileName]
+	// A workspace remembered from another Console (the profile was re-pointed with --api) or no longer in this
+	// login's consent would turn every workspace-scoped call into a bare 404. Forget it: the single consented
+	// workspace applies on its own, otherwise `iugu workspace use` picks one.
+	stale := p.Workspace != "" && !slices.Contains(session.Workspaces, p.Workspace)
+	if !ok || p.API != rt.profile.API || stale {
 		p.API = rt.profile.API
+		if stale {
+			p.Workspace = ""
+		}
 		rt.configFile.Profiles[rt.profileName] = p
 		_ = rt.configFile.Save()
 	}
+	rt.profile.Workspace = p.Workspace
 	rt.session = session
 	payload := statusPayload(session, rt.store.Name(), true)
 	rt.Printer.Result(payload, func(w io.Writer) {

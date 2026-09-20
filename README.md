@@ -52,7 +52,7 @@ entry and the skill for Claude Code, Codex, OpenCode, Cursor and VS Code.
 | Headless / SSH | `iugu login --device`: RFC 8628 device flow; prints the URL and a code. |
 | Agent (non-TTY, `CI`, `CLAUDECODE`, `CODEX_*`, `OPENCODE*`, `CURSOR_*`) | `iugu login` is non-blocking: prints `verification_uri_complete`, `user_code` and `next_step` (`iugu login --complete <handle> --wait`) and exits 0. Override with `--agent yes\|no\|auto`. |
 | CI / unattended | `IUGU_TOKEN=<deploy token>` wins over any stored login and never touches disk. |
-| Several accounts | `--profile`/`IUGU_PROFILE`; `iugu workspace use <id>`; `iugu login --workspace <id>` re-consents and merges a workspace into the grant. |
+| Several accounts or Consoles | `--profile`/`IUGU_PROFILE` (e.g. `iugu --profile dev login --api https://api.console.<host>` for a staging Console; the default profile stays on production); `iugu workspace use <id>`; `iugu login --workspace <id>` re-consents and merges a workspace into the grant. A profile's workspace is forgotten when a login no longer covers it. |
 
 The refresh token is stored in the OS keychain (macOS Keychain, Secret Service, Windows Credential
 Manager). When the keychain is unavailable — headless Linux, containers, a `$HOME` without a login

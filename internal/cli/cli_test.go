@@ -615,3 +615,43 @@ func assertPrivateFile(t *testing.T, path string) {
 		t.Fatalf("%s must be 0600, got %v", filepath.Base(path), info.Mode().Perm())
 	}
 }
+
+// A profile re-pointed at another Console (login --api) must not keep the workspace it remembered from the
+// previous one: the login forgets a workspace this consent does not cover, and a call that still names one
+// (iugu.toml, --workspace) gets a hint naming the consented workspaces instead of a bare 404.
+func TestLoginForgetsWorkspaceOfAnotherConsole(t *testing.T) {
+	f := newFakeConsole(t)
+	dir := t.TempDir()
+	// the profile remembers a workspace of "another Console" before this login
+	cfg := map[string]any{"default_profile": "default", "profiles": map[string]any{"default": map[string]any{"api": "https://api.console.elsewhere.test", "workspace": "ws-elsewhere"}}}
+	data, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := run(t, dir, f.srv.URL, "login", "--json", "--agent", "yes")
+	if code != 0 {
+		t.Fatalf("handoff: %d %s", code, out)
+	}
+	var handoff map[string]any
+	_ = json.Unmarshal([]byte(out), &handoff)
+	handle := handoff["handle"].(string)
+	run(t, dir, f.srv.URL, "login", "--complete", handle, "--json") // pending once
+	code, out, _ = run(t, dir, f.srv.URL, "login", "--complete", handle, "--json")
+	if code != 0 || !strings.Contains(out, `"logged_in": true`) {
+		t.Fatalf("completion: %d %s", code, out)
+	}
+	saved, _ := os.ReadFile(filepath.Join(dir, "config.json"))
+	if strings.Contains(string(saved), "ws-elsewhere") || !strings.Contains(string(saved), f.srv.URL) {
+		t.Fatalf("profile must point at the new API without the old workspace: %s", saved)
+	}
+	// with no workspace remembered, the single consented one applies (the fake answers on /workspaces/ws1/apps)
+	code, out, _ = run(t, dir, f.srv.URL, "app", "list", "--json")
+	if code != 0 || strings.Contains(out, "error") {
+		t.Fatalf("app list on the consented workspace: %d %s", code, out)
+	}
+	// an explicit stale workspace still 404s, but with the hint
+	code, out, _ = run(t, dir, f.srv.URL, "app", "list", "--workspace", "ws-elsewhere", "--json")
+	if code != 1 || !strings.Contains(out, `"status": 404`) || !strings.Contains(out, "not among the workspaces of this login (ws1)") || !strings.Contains(out, "iugu workspace use") {
+		t.Fatalf("stale workspace hint: %d %s", code, out)
+	}
+}

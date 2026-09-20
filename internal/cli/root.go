@@ -7,8 +7,10 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,6 +67,9 @@ type Runtime struct {
 	metadata *auth.Metadata
 	oauth    *auth.Client
 	session  *auth.Session
+	// workspaceUsed is the workspace the current command resolved (flag, iugu.toml, profile or the single
+	// consented one) — for the hint when the API answers 404 to a workspace this login never consented to.
+	workspaceUsed string
 }
 
 // Execute runs the CLI and returns the process exit code.
@@ -137,10 +142,18 @@ func (rt *Runtime) exit(err error) int {
 				return output.ExitHumanGate
 			}
 		}
+		hint, nextStep := rt.workspaceHint(apiErr)
 		if p.JSON {
-			p.Result(map[string]any{"error": apiErr}, nil)
+			payload := map[string]any{"error": apiErr}
+			if hint != "" {
+				payload["hint"], payload["next_step"] = hint, nextStep
+			}
+			p.Result(payload, nil)
 		} else {
 			p.Line("API error: %s", apiErr.Error())
+			if hint != "" {
+				p.Line("Hint: %s", hint)
+			}
 			if apiErr.Code == "workspace_not_consented" {
 				p.Line("Hint: iugu login --workspace <id> re-consents and merges the workspace into your grant.")
 			}
@@ -402,6 +415,12 @@ func (rt *Runtime) oauthForSession(ctx context.Context, s *auth.Session) (*auth.
 // workspaceArg resolves the workspace to act on: flag > iugu.toml development workspace > profile >
 // the single consented workspace.
 func (rt *Runtime) workspaceArg(flag string) (string, error) {
+	ws, err := rt.resolveWorkspace(flag)
+	rt.workspaceUsed = ws
+	return ws, err
+}
+
+func (rt *Runtime) resolveWorkspace(flag string) (string, error) {
 	if flag != "" {
 		return flag, nil
 	}
@@ -415,6 +434,21 @@ func (rt *Runtime) workspaceArg(flag string) (string, error) {
 		return s.Workspaces[0], nil
 	}
 	return "", &output.Exit{Code: output.ExitUsage, Message: "which workspace? pass --workspace <id>, run `iugu workspace use <id>`, or run inside a project with iugu.toml"}
+}
+
+// workspaceHint explains a 404/403 that is really a stale workspace selection: the profile (or iugu.toml) names a
+// workspace this login never consented to — typically remembered from another Console. Empty when not the case.
+func (rt *Runtime) workspaceHint(apiErr *api.Error) (hint, nextStep string) {
+	if apiErr.Status != http.StatusNotFound && apiErr.Code != "workspace_not_consented" {
+		return "", ""
+	}
+	ws := rt.workspaceUsed
+	if ws == "" || rt.session == nil || len(rt.session.Workspaces) == 0 || slices.Contains(rt.session.Workspaces, ws) {
+		return "", ""
+	}
+	return fmt.Sprintf("workspace %s is not among the workspaces of this login (%s); it was probably selected on another Console",
+			ws, strings.Join(rt.session.Workspaces, ", ")),
+		"iugu workspace use <id> (one of the workspaces above), or iugu login --workspace " + ws + " to consent to it"
 }
 
 // appArg resolves the app: positional/flag > iugu.toml.
