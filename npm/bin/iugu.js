@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs the downloaded binary, forwarding argv, stdio and the exit code (0/1/2/4/5/6 are meaningful).
+// Runs the downloaded binary, forwarding argv, stdio and the exit code (0/1/2/4/5/6/7 are meaningful, see `iugu docs exit-codes`).
 "use strict";
 const path = require("node:path");
 const fs = require("node:fs");

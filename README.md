@@ -5,8 +5,8 @@ agents that work with them: log in once, create and configure Console apps, get 
 credentials without ever seeing them in a chat window, test authorization, publish. Every command has
 `--json`, meaningful exit codes and a human-approval loop for sensitive operations (change sets).
 
-The CLI talks to the **Lifecycle API** (`https://api.console.iugu.com/v1`, OpenAPI in Console's
-`docs/public/api-v1.yaml`) with OAuth 2.1 tokens issued by Console's authorization server
+The CLI talks to the **Lifecycle API** (`https://api.console.iugu.com/v1`; the OpenAPI 3.1 contract is
+published at <https://developer.iugu.com/console/api-v1.yaml>) with OAuth 2.1 tokens issued by Console's authorization server
 (`https://identity.iugu.com`). It does not embed an MCP server: `iugu agent setup` points each harness at
 **Iugu for AI**, the remote MCP server `https://mcp.console.iugu.com/mcp`, which exposes the same operations as MCP tools
 (clients connect through OAuth — Claude Code, Codex, Cursor, VS Code, ChatGPT — no CLI needed there).
@@ -114,8 +114,8 @@ make lint       # go vet + staticcheck
 make snapshot   # goreleaser snapshot (no publish, no signing)
 ```
 
-Point the CLI at a Console worktree with `IUGU_API=https://api.console.<slug>.iugu.test` and
-`IUGU_CLIENT_ID=<cli client short id>` (printed by Console's `bin/rails oauth_clients:ensure_first_party`).
+Point the CLI at another Console (a staging or development instance) with `IUGU_API=https://api.console.<host>` and
+`IUGU_CLIENT_ID=<that Console's CLI client id>`.
 The AS is discovered from the API (`/.well-known/oauth-protected-resource` → `/.well-known/oauth-authorization-server`).
 
 ## License

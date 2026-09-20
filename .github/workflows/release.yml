@@ -3,9 +3,8 @@ on:
   push:
     tags: ["v*"]
 permissions:
-  contents: write   # GitHub Release
-  id-token: write   # cosign keyless signing
-  packages: write
+  contents: write   # the GitHub Release and its assets
+  id-token: write   # cosign keyless signing (Sigstore, GitHub OIDC)
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
@@ -23,18 +22,23 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # Fine-grained token with Contents: write on iugu/homebrew-tap and iugu/scoop-bucket only
+          # (the workflow's own GITHUB_TOKEN cannot write to other repositories).
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+  # @iugu/cli is published with npm Trusted Publishing (OIDC — no npm token in this repository). The first
+  # version was published by hand; once the trusted publisher (GitHub Actions, iugu/cli, release.yml) is
+  # configured on npmjs.com, set the repository variable NPM_TRUSTED_PUBLISHING=true and every tag publishes.
   npm:
     needs: goreleaser
+    if: vars.NPM_TRUSTED_PUBLISHING == 'true'
     runs-on: ubuntu-latest
     permissions: { id-token: write, contents: read }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+        with: { node-version: 22, registry-url: https://registry.npmjs.org }
+      - run: npm install -g npm@latest   # trusted publishing needs npm >= 11.5.1
       - run: |
           VERSION="${GITHUB_REF_NAME#v}"
           cd npm && npm version "$VERSION" --no-git-tag-version
-          IUGU_CLI_SKIP_DOWNLOAD=1 npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          IUGU_CLI_SKIP_DOWNLOAD=1 npm publish --access public

@@ -1,9 +1,14 @@
-# goreleaser v2 — `make snapshot` builds locally without publishing; tags on `main` publish through CI.
-# Releases are signed with cosign (keyless, GitHub OIDC), ship an SBOM per archive and a checksums
-# file that the Homebrew formula and the npm shim pin.
+# goreleaser v2 — `make snapshot` builds locally without publishing; a `v*` tag on `main` publishes through CI
+# (.github/workflows/release.yml). Releases are signed with cosign (keyless, GitHub OIDC), ship an SBOM per archive
+# and a checksums file that install.sh, the Homebrew cask and the npm shim verify against. The cask and the Scoop
+# manifest live in other repositories (iugu/homebrew-tap, iugu/scoop-bucket): pushing there needs TAP_GITHUB_TOKEN,
+# a fine-grained token with Contents: write on those two repositories only (repository secret of iugu/cli).
 version: 2
 
 project_name: iugu
+
+git:
+  ignore_tags: ["backup/*"]
 
 before:
   hooks:
@@ -65,13 +70,14 @@ release:
   github:
     owner: iugu
     name: cli
-  draft: true
+  draft: false
   prerelease: auto
   footer: |
     ## Install
     ```
     brew install iugu/tap/iugu
     curl -fsSL https://raw.githubusercontent.com/iugu/cli/main/install.sh | sh
+    scoop bucket add iugu https://github.com/iugu/scoop-bucket && scoop install iugu
     npx @iugu/cli --help
     ```
     Verify: `cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp 'github.com/iugu/cli' --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`
@@ -82,8 +88,10 @@ homebrew_casks:
       owner: iugu
       name: homebrew-tap
       branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Casks
-    homepage: https://developer.iugu.com/console/cli
+    skip_upload: auto
+    homepage: https://github.com/iugu/cli
     description: Platform 2 Console CLI for developers and their AI agents
     license: MIT
     binaries: [iugu]
@@ -103,6 +111,9 @@ scoops:
     repository:
       owner: iugu
       name: scoop-bucket
-    homepage: https://developer.iugu.com/console/cli
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    skip_upload: auto
+    homepage: https://github.com/iugu/cli
     description: Platform 2 Console CLI for developers and their AI agents
     license: MIT

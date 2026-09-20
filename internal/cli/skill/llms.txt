@@ -3,9 +3,9 @@
 > Command-line tool for iugu Platform 2 Console: create, configure, test and publish apps; sensitive changes become human approvals.
 
 - Skill: `iugu docs` (SKILL.md) — golden path, tiers, secrets policy, exit codes
-- API contract: docs/public/api-v1.yaml in platform2-console (OpenAPI 3.1; every operation has x-iugu-scope, x-iugu-actions, x-iugu-tier)
+- API contract: https://developer.iugu.com/console/api-v1.yaml (OpenAPI 3.1; every operation has x-iugu-scope, x-iugu-actions, x-iugu-tier, x-mcp-annotations)
 - Remote MCP (for hosted/chat clients): https://mcp.console.iugu.com/mcp — configure with `iugu agent setup`
 - Auth: `iugu login` (browser or device code; non-interactive handoff for agents) · `iugu auth status --json` · one grant per credential holder (profile / project-local `IUGU_CONFIG_DIR=.iugu`)
 - Workspace access (GIA): `iugu gia roles|policies|members|invites` reads; writes (`create/update/delete`, `set-roles`, `remove`, `invites create/resend`) are approvals under `console:gia.write`
 - Sandboxes: `iugu docs sandboxes` — no network / read-only login store (Codex), turn boundaries, one command per call
-- Exit codes: 0 ok · 1 error · 2 usage · 4 login required · 5 approval required · 6 conflict
+- Exit codes: 0 ok · 1 error · 2 usage · 4 login required · 5 approval required · 6 conflict · 7 human must act on the grant first (verify identity / widen; payload has `url`)

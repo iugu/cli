@@ -20,17 +20,16 @@ import (
 // the short id of the fixed UUID in config/iugu.yml. Override with IUGU_CLIENT_ID for other environments.
 const DefaultClientID = "5KRabYLSLO1ohVrMQSsAUF"
 
-// DefaultAPI is the production Lifecycle API; local worktrees use https://api.console.<slug>.iugu.test.
+// DefaultAPI is the production Lifecycle API; IUGU_API / a profile point at another Console.
 const DefaultAPI = "https://api.console.iugu.com"
 
 const (
-	EnvConfigDir   = "IUGU_CONFIG_DIR"
-	EnvProfile     = "IUGU_PROFILE"
-	EnvAPI         = "IUGU_API"
-	EnvClientID    = "IUGU_CLIENT_ID"
-	EnvToken       = "IUGU_TOKEN" // static bearer (deploy token) — wins over stored logins, never written to disk
-	EnvStore       = "IUGU_CREDENTIALS_STORE"
-	EnvLogSanitize = "IUGU_LOG_SANITIZE"
+	EnvConfigDir = "IUGU_CONFIG_DIR"
+	EnvProfile   = "IUGU_PROFILE"
+	EnvAPI       = "IUGU_API"
+	EnvClientID  = "IUGU_CLIENT_ID"
+	EnvToken     = "IUGU_TOKEN" // static bearer (deploy token) — wins over stored logins, never written to disk
+	EnvStore     = "IUGU_CREDENTIALS_STORE"
 )
 
 // Profile is one login target (API host + preferred workspace); credentials live in the store, not here.

@@ -1,9 +1,10 @@
 # AGENTS.md — working in the `iugu` CLI repository
 
 This file is for AI coding agents and humans alike. The product is a single Go binary, `iugu`, the
-local surface of the Platform 2 Console for developers and their agents (plan §8, Console repo
-`docs/tmp/plan/05-cli.md`). It talks only to the Lifecycle API and the OAuth endpoints described in
-Console's `docs/public/api-v1.yaml`; the contract there wins over anything in this repository.
+local surface of the Platform 2 Console for developers and their agents. It talks only to the Lifecycle
+API and the OAuth endpoints described in the published contract <https://developer.iugu.com/console/api-v1.yaml>
+(OpenAPI 3.1; `x-iugu-scope`, `x-iugu-actions`, `x-iugu-tier`, `x-mcp-annotations` per operation); the contract
+wins over anything in this repository, and the `--json` shapes and the skill (`internal/cli/skill/`) follow it.
 
 ## Layout
 
@@ -31,10 +32,9 @@ make lint                             # gofmt, go vet, staticcheck
 make snapshot                         # goreleaser --snapshot (no publish/sign); needs goreleaser on PATH
 ```
 
-End to end against a Console worktree (the Console repo has the Playwright script
-`e2e/cli-e2e.mjs` used for the Phase 2 review): `IUGU_API=https://api.console.<slug>.iugu.test
-IUGU_CLIENT_ID=<cli client short id> ./bin/iugu login --no-browser --json`. Go trusts the local Caddy
-CA through the system keychain; Node needs `NODE_EXTRA_CA_CERTS`.
+End to end against another Console (staging or a development instance): `IUGU_API=https://api.console.<host>
+IUGU_CLIENT_ID=<that Console's CLI client id> ./bin/iugu login --no-browser --json`. Go trusts a local CA
+through the system keychain.
 
 ## Rules
 
@@ -43,7 +43,8 @@ CA through the system keychain; Node needs `NODE_EXTRA_CA_CERTS`.
 - **Stable JSON.** Every command's `--json` shape is part of the contract with agents; add fields, do
   not rename or remove. Empty lists are `[]`, never `null`. URLs are not HTML-escaped.
 - **Exit codes** are semantic: 0 ok · 1 error · 2 usage/cancelled · 4 login required · 5 approval
-  required (payload printed) · 6 stale/conflict. Map new failure modes onto these.
+  required (payload printed) · 6 stale/conflict · 7 the human must act on the grant first (verify identity or
+  widen; payload has `url`). Map new failure modes onto these.
 - Help text is read by LLMs: spell out the non-interactive equivalent of every prompt and the JSON shape.
 - Agent detection (`--agent auto`) must stay conservative: non-TTY or a known harness variable.
   Interactive prompts are only allowed when `!rt.IsAgent()`.

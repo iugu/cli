@@ -1,4 +1,4 @@
-// Package api is the HTTP client of the Lifecycle API (docs/public/api-v1.yaml in platform2-console).
+// Package api is the HTTP client of the Lifecycle API (contract: https://developer.iugu.com/console/api-v1.yaml).
 // Responses are kept as generic JSON (the CLI mostly prints them) with typed accessors for the facts
 // the commands act on (status, approval URL, ids, secrets).
 package api
