@@ -99,12 +99,17 @@ homebrew_casks:
       bash: completions/iugu.bash
       zsh: completions/_iugu
       fish: completions/iugu.fish
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/iugu"]
-          end
+    # The binaries are not notarized by Apple yet; Homebrew quarantines cask downloads and Gatekeeper would refuse
+    # the binary. Declarative steps (Homebrew 7): the legacy `postflight` block goreleaser's `hooks` render is
+    # deprecated and prints a warning on every install. `{{staged_path}}` is Homebrew's install-time token; the
+    # braces are escaped because goreleaser runs this block through Go's text/template first. goreleaser puts a
+    # custom_block at the top of the cask, which `brew style` flags as stanza order — cosmetic; the install is clean.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{" }}staged_path{{ "}}" }}/iugu"], must_succeed: false
+        end
+      end
 
 scoops:
   - name: iugu
