@@ -11,6 +11,8 @@ published at <https://developer.iugu.com/console/api-v1.yaml>) with OAuth 2.1 to
 **Iugu for AI**, the remote MCP server `https://mcp.console.iugu.com/mcp`, which exposes the same operations as MCP tools
 (clients connect through OAuth — Claude Code, Codex, Cursor, VS Code, ChatGPT — no CLI needed there).
 
+Documentation (pt-BR): <https://developer.iugu.com/console/cli> — and the whole developer path, from the first app to billing and agents, at <https://developer.iugu.com/console/development>.
+
 ## Install
 
 ```sh

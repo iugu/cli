@@ -91,7 +91,7 @@ homebrew_casks:
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Casks
     skip_upload: auto
-    homepage: https://github.com/iugu/cli
+    homepage: https://developer.iugu.com/console/cli
     description: Platform 2 Console CLI for developers and their AI agents
     license: MIT
     binaries: [iugu]
@@ -119,6 +119,6 @@ scoops:
       branch: main
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     skip_upload: auto
-    homepage: https://github.com/iugu/cli
+    homepage: https://developer.iugu.com/console/cli
     description: Platform 2 Console CLI for developers and their AI agents
     license: MIT
