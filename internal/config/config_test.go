@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -24,9 +25,8 @@ func TestProfilesAndOverrides(t *testing.T) {
 	if err := f.Save(); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(filepath.Join(dir, "config.json"))
-	if info.Mode().Perm() != 0o600 {
-		t.Fatal("config must be 0600")
+	if info, _ := os.Stat(filepath.Join(dir, "config.json")); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatal("config must be 0600") // no mode bits on Windows: profile ACLs
 	}
 	f2, _ := Load()
 	t.Setenv(EnvProfile, "dev")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -22,9 +23,8 @@ func TestFileStoreRoundTripAndMode(t *testing.T) {
 	if err := f.Set("other", []byte(`{"refresh_token":"y"}`)); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(f.Path)
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("credentials file must be 0600, got %v", info.Mode().Perm())
+	if info, _ := os.Stat(f.Path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("credentials file must be 0600, got %v", info.Mode().Perm()) // no mode bits on Windows: profile ACLs
 	}
 	v, err := f.Get("default")
 	var got map[string]string
@@ -202,6 +202,9 @@ func TestNamespaceIsEmptyForTheDefaultDirAndStableOtherwise(t *testing.T) {
 }
 
 func TestFileStoreReportsNotWritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory modes do not restrict file creation on Windows")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Skip("cannot make dir read-only")

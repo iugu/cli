@@ -57,7 +57,8 @@ entry and the skill for Claude Code, Codex, OpenCode, Cursor and VS Code.
 The refresh token is stored in the OS keychain (macOS Keychain, Secret Service, Windows Credential
 Manager). When the keychain is unavailable — headless Linux, containers, a `$HOME` without a login
 keychain — the CLI warns once and uses `~/.config/iugu/credentials.json` (0600). `--credentials-store
-ephemeral` keeps it in memory only. `iugu auth status --json` always exits 0 and tells the truth in
+ephemeral` keeps it in memory only. On Windows the files live under `%USERPROFILE%\.config\iugu`; there are no
+POSIX mode bits, the profile's ACLs (private to your account) protect them. `iugu auth status --json` always exits 0 and tells the truth in
 `logged_in` (it checks the grant online; `--offline` to skip); `iugu logout` revokes the grant server-side.
 
 **One grant per credential holder.** Every config dir (`~/.config/iugu`, a `--profile`, or a project-local

@@ -18,6 +18,8 @@ reports within two business days and keep you informed until the fix ships.
 - **Secrets delivered by change sets** — written only where you ask (`--write-env <file>` with `0600` and a
   `.gitignore` entry, or `--exec` in-process substitution); the API delivers each secret **once**.
 - **`IUGU_TOKEN`** (deploy tokens for CI) is read from the environment and never written to disk.
+- **Windows**: the same files live under `%USERPROFILE%\.config\iugu`. NTFS has no POSIX mode bits, so `0600` does
+  not apply; the files are protected by the ACLs of your profile directory (private to your account by default).
 
 A secret substituted with `--exec` is redacted from the command echoed in `--json` output. The CLI does not send
 telemetry.

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -308,10 +309,7 @@ func TestExitCodesAndHandoffFlow(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `IUGU_CLIENT_SECRET="s3cr3t-value-with space"`) || !strings.Contains(string(data), "IUGU_CLIENT_ID=app1") {
 		t.Fatalf("env file: %s %v", data, err)
 	}
-	info, _ := os.Stat(envPath)
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("env file must be 0600, got %v", info.Mode().Perm())
-	}
+	assertPrivateFile(t, envPath)
 
 	// logout revokes and forgets
 	code, out, _ = run(t, dir, f.srv.URL, "logout", "--json")
@@ -352,11 +350,35 @@ func TestAppInitWritesProjectAndExits5(t *testing.T) {
 	}
 }
 
+// TestHelperProcess is the child of TestExecSubstitutesSecretsInProcess: it writes its last argument into the
+// file named by the one before (no shell involved, so it runs the same on every OS).
+func TestHelperProcess(t *testing.T) {
+	if os.Getenv("IUGU_TEST_HELPER_PROCESS") != "1" {
+		t.Skip("helper process")
+	}
+	args := os.Args
+	for i, a := range args {
+		if a == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	if len(args) != 2 {
+		os.Exit(3)
+	}
+	if err := os.WriteFile(args[0], []byte(args[1]), 0o600); err != nil {
+		os.Exit(4)
+	}
+	os.Exit(0)
+}
+
 func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "out.txt")
-	env := map[string]string{"IUGU_CLIENT_SECRET": "top-secret", "IUGU_CLIENT_ID": "app1"}
-	if err := execWithSecrets(`sh -c "printf %s {IUGU_CLIENT_ID}:{secret} > `+marker+`"`, env); err != nil {
+	env := map[string]string{"IUGU_CLIENT_SECRET": "top-secret", "IUGU_CLIENT_ID": "app1", "IUGU_TEST_HELPER_PROCESS": "1"}
+	// the test binary itself is the command; placeholders are substituted into argv, not through a shell
+	command := `"` + os.Args[0] + `" -test.run=^TestHelperProcess$ -- "` + marker + `" {IUGU_CLIENT_ID}:{secret}`
+	if err := execWithSecrets(command, env); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(marker)
@@ -564,5 +586,21 @@ func TestAppEnvFormatsExplainTheSecret(t *testing.T) {
 	code, out, _ = run(t, dir, f.srv.URL, "app", "env", "app1", "--format", "heroku")
 	if code != 2 {
 		t.Fatalf("unknown format is a usage error (2), got %d: %s", code, out)
+	}
+}
+
+// assertPrivateFile checks the 0600 mode the CLI writes secrets with. Windows has no POSIX mode bits (Go
+// reports 0666 for any writable file); there the files rely on the ACLs of the user's profile directory.
+func assertPrivateFile(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("%s must be 0600, got %v", filepath.Base(path), info.Mode().Perm())
 	}
 }
