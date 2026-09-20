@@ -1,6 +1,6 @@
 {
   "name": "@iugu/cli",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Platform 2 Console CLI (iugu) — npm shim that downloads the signed binary for your platform",
   "license": "MIT",
   "repository": "github:iugu/cli",
