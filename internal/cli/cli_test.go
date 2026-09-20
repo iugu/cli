@@ -366,7 +366,15 @@ func TestHelperProcess(t *testing.T) {
 	if len(args) != 2 {
 		os.Exit(3)
 	}
-	if err := os.WriteFile(args[0], []byte(args[1]), 0o600); err != nil {
+	content := args[1]
+	if strings.HasPrefix(content, "env:") { // "env:A,B" → the child's own environment, as a script would read it
+		var values []string
+		for _, name := range strings.Split(strings.TrimPrefix(content, "env:"), ",") {
+			values = append(values, os.Getenv(name))
+		}
+		content = strings.Join(values, ":")
+	}
+	if err := os.WriteFile(args[0], []byte(content), 0o600); err != nil {
 		os.Exit(4)
 	}
 	os.Exit(0)
@@ -377,8 +385,10 @@ func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 	marker := filepath.Join(dir, "out.txt")
 	env := map[string]string{"IUGU_CLIENT_SECRET": "top-secret", "IUGU_CLIENT_ID": "app1", "IUGU_TEST_HELPER_PROCESS": "1"}
 	// the test binary itself is the command; placeholders are substituted into argv, not through a shell
-	command := `"` + os.Args[0] + `" -test.run=^TestHelperProcess$ -- "` + marker + `" {IUGU_CLIENT_ID}:{secret}`
-	if err := execWithSecrets(command, env); err != nil {
+	helper := func(marker, content string) string {
+		return `"` + os.Args[0] + `" -test.run=^TestHelperProcess$ -- "` + marker + `" ` + content
+	}
+	if err := execWithSecrets(helper(marker, "{IUGU_CLIENT_ID}:{secret}"), env); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(marker)
@@ -396,14 +406,15 @@ func TestExecSubstitutesSecretsInProcess(t *testing.T) {
 	}
 	// the child also gets the secrets in its environment: a script can read "$IUGU_CLIENT_SECRET" and feed a tool's stdin
 	envMarker := filepath.Join(dir, "env.txt")
-	if err := execWithSecrets(`sh -c "printf %s $IUGU_CLIENT_SECRET:$IUGU_CLIENT_ID > `+envMarker+`"`, env); err != nil {
+	if err := execWithSecrets(helper(envMarker, "env:IUGU_CLIENT_SECRET,IUGU_CLIENT_ID"), env); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(envMarker); string(data) != "top-secret:app1" {
 		t.Fatalf("environment export failed: %q", data)
 	}
 	tokenMarker := filepath.Join(dir, "token.txt")
-	if err := execWithSecrets(`sh -c "printf %s {token} > `+tokenMarker+`"`, map[string]string{"IUGU_ACCESS_TOKEN": "at-123"}); err != nil {
+	tokenEnv := map[string]string{"IUGU_ACCESS_TOKEN": "at-123", "IUGU_TEST_HELPER_PROCESS": "1"}
+	if err := execWithSecrets(helper(tokenMarker, "{token}"), tokenEnv); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(tokenMarker); string(data) != "at-123" {
