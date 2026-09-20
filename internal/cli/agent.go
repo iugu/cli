@@ -34,7 +34,11 @@ func (rt *Runtime) agentCommand() *cobra.Command {
 (https://mcp.console.iugu.com/mcp) and installs the iugu skill (SKILL.md) where the harness reads skills.
 Nothing runs locally: the harness authenticates itself with OAuth on first use ("Connect"). Headless harnesses
 (claude -p, codex exec) need a prior interactive connection or IUGU_TOKEN (deploy token) as a bearer header.
-Files are written under $HOME; set HOME to a scratch directory to preview. --print shows the snippets only.`,
+Files are written under $HOME; set HOME to a scratch directory to preview. --print shows the snippets only.
+
+Claude Desktop has no file to write: add Iugu for AI in the app (Settings → Connectors → Add custom connector →
+the MCP URL); its claude_desktop_config.json only takes local stdio servers. In the app, "+ → Add from Iugu for AI
+→ iugu_guide" shows the guidance the assistant receives.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if mcpURL == "" {
 				mcpURL = deriveMCPURL(rt.profile.API)
@@ -75,6 +79,7 @@ Files are written under $HOME; set HOME to a scratch directory to preview. --pri
 				for _, rec := range recommendations {
 					fmt.Fprintf(w, "\n%s — %s\n%s\n", rec.Harness, rec.Title, rec.Text)
 				}
+				fmt.Fprintf(w, "\nClaude Desktop: %s\n", agentsetup.Snippets(mcpURL)["claude_desktop"])
 				fmt.Fprintf(w, "\nAdd to your project's AGENTS.md:\n%s\n", agentsSnippet)
 			})
 			return nil

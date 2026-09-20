@@ -198,5 +198,8 @@ func Snippets(mcpURL string) map[string]string {
 		"cursor":   fmt.Sprintf(`{"mcpServers": {"iugu": {"url": %q}}}`, mcpURL),
 		"vscode":   fmt.Sprintf(`{"servers": {"iugu": {"type": "http", "url": %q}}}`, mcpURL),
 		"gemini":   fmt.Sprintf(`{"mcpServers": {"iugu": {"httpUrl": %q}}}`, mcpURL),
+		// Claude Desktop is not Claude Code: its claude_desktop_config.json only takes stdio servers (command/args);
+		// a remote server is added in the app, which then runs the OAuth consent itself.
+		"claude_desktop": fmt.Sprintf("Claude Desktop → Settings → Connectors → Add custom connector → URL %s", mcpURL),
 	}
 }
